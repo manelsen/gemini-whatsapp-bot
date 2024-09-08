@@ -292,13 +292,13 @@ async function handleTextMessage(msg) {
         // Manter o histórico de mensagens
         const history = await getMessageHistory(userId);
 
+        // Identificar a última pergunta no histórico ANTES de adicionar a nova mensagem
+        const lastQuestion = getLastQuestion(history);
+
         // Adicionar a nova mensagem ao histórico
         await updateMessageHistory(userId, msg.body, '');
 
         const model = getModelForUser(userId);
-
-        // Identificar a última pergunta no histórico
-        const lastQuestion = getLastQuestion(history);
 
         // Construir o prompt com o contexto e a última pergunta
         const userPromptText = history.join('\n\n') + '\n\n' + lastQuestion;
