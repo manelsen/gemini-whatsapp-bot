@@ -243,20 +243,35 @@ async function handleTextMessage(msg) {
 
         let response = '';
         
+        if (!session.introductionGiven) {
+            response += "Olá! 😊 Sou a Dra. Amelie, uma androide programada para oferecer apoio e suporte a pessoas neurodivergentes. Estou aqui para te ouvir, te ajudar e te dar um abraço virtual se precisar. 🤗\n\n";
+            session.introductionGiven = true;
+        }
+
         const history = await getMessageHistory(userId);
         const activePrompt = await getActiveSystemPrompt(userId);
         
         const systemPromptText = activePrompt ? activePrompt.text : "";
         const userPromptText = history.join('\n\n') + '\n\n' + msg.body;
         
+        console.log('Gerando resposta para:', userPromptText);
         const specificResponse = await generateResponseWithText(systemPromptText, userPromptText, userId);
-        response += specificResponse;
+        console.log('Resposta gerada:', specificResponse);
+        
+        if (specificResponse) {
+            response += specificResponse;
+        } else {
+            response += "Desculpe, não consegui gerar uma resposta. Pode tentar reformular sua pergunta?";
+        }
+        
+        console.log('Resposta final:', response);
         
         await updateMessageHistory(userId, msg.body, response);
         await sendLongMessage(msg, response);
     } catch (error) {
+        console.error('Erro detalhado:', error);
         logger.error('Erro ao processar mensagem de texto:', error);
-        await msg.reply('Desculpe, não foi possível processar sua mensagem. Por favor, tente novamente.');
+        await msg.reply('Desculpe, ocorreu um erro ao processar sua mensagem. Por favor, tente novamente.');
     }
 }
 
@@ -451,25 +466,23 @@ async function getConfig(userId) {
 
 async function sendLongMessage(msg, text) {
     try {
-        // Remove qualquer quebra de linha extra no início ou fim do texto
+        if (!text || text.trim() === '') {
+            console.log('Tentativa de enviar mensagem vazia ou undefined');
+            text = "Desculpe, ocorreu um erro ao gerar a resposta.";
+        }
+        
         let trimmedText = text.trim();
+        trimmedText = trimmedText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n{3,}/g, '\n\n');
         
-        // Substitui todas as ocorrências de CRLF (\r\n) por LF (\n)
-        trimmedText = trimmedText.replace(/\r\n/g, '\n');
-        
-        // Substitui quaisquer CRs (\r) remanescentes por LFs (\n)
-        trimmedText = trimmedText.replace(/\r/g, '\n');
-        
-        // Remove quaisquer linhas em branco extras
-        trimmedText = trimmedText.replace(/\n{3,}/g, '\n\n');
-        
-        // Envia todo o texto como uma única mensagem
+        console.log('Enviando mensagem:', trimmedText);
         await msg.reply(trimmedText);
     } catch (error) {
+        console.error('Erro ao enviar mensagem:', error);
         logger.error('Erro ao enviar mensagem:', error);
         await msg.reply('Desculpe, ocorreu um erro ao enviar a resposta. Por favor, tente novamente.');
     }
 }
+
 
 function resetSessionAfterInactivity(userId, inactivityPeriod = 3600000) { // 1 hora
     setTimeout(() => {
