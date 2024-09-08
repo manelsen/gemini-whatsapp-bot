@@ -41,8 +41,8 @@ const lastResponses = new Map();
 
 // Configuração padrão
 const defaultConfig = {
-    temperature: 1.5,
-    topK: 100,
+    temperature: 1.2,
+    topK: 40,
     topP: 0.95,
     maxOutputTokens: 1024,
 };
