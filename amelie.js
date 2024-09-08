@@ -373,7 +373,7 @@ async function handlePromptCommand(msg, args, chatId) {
                     await msg.reply(`System Instruction "${name}" não encontrada.`);
                 }
             }
-        } else {
+            else {
             await msg.reply('Uso correto: !prompt use <nome>');
         }
         break;
