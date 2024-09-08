@@ -293,24 +293,23 @@ async function generateResponseWithText(userPrompt, chatId) {
     try {
         const userConfig = await getConfig(chatId);
 
-        // Remove os campos inválidos da configuração
+        // Configuração válida incluindo systemInstructions
         const validConfig = {
             temperature: userConfig.temperature,
             topK: userConfig.topK,
             topP: userConfig.topP,
-            maxOutputTokens: userConfig.maxOutputTokens
+            maxOutputTokens: userConfig.maxOutputTokens,
+            systemInstructions: userConfig.systemInstructions
         };
 
-        if (userConfig.systemInstructions) {
-            validConfig.systemInstructions = userConfig.systemInstructions; 
-        }
-
-        const result = await model.generateContent({
-            contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-            generationConfig: validConfig,
+        // Inicialize o modelo com as instruções do sistema
+        const modelWithInstructions = genAI.getGenerativeModel({
+            model: "gemini-1.5-flash",
+            ...validConfig
         });
 
-
+        // Gere o conteúdo
+        const result = await modelWithInstructions.generateContent(userPrompt);
         const responseText = result.response.text();
 
         if (!responseText) {
