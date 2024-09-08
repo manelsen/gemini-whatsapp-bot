@@ -38,7 +38,7 @@ const configDb = new Datastore({ filename: 'config.db', autoload: true });
 const genAI = new GoogleGenerativeAI(API_KEY);
 
 // Inicialização do modelo Gemini
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 // Mapa para armazenar as últimas respostas por chat
 const lastResponses = new Map();
