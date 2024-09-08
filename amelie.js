@@ -11,7 +11,6 @@ dotenv.config();
 const GOOGLE_AI_KEY = process.env.GOOGLE_AI_KEY;
 const MAX_HISTORY = parseInt(process.env.MAX_HISTORY || '500');
 const BOT_NAME = process.env.BOT_NAME || 'Amelie';
-const userSessions = new Map();
 
 // Configuração do logger
 const logger = winston.createLogger({
@@ -49,6 +48,8 @@ const client = new Client({
     authStrategy: new LocalAuth()
 });
 
+const userSessions = new Map();
+
 client.on('qr', qr => {
     qrcode.generate(qr, {small: true});
     logger.info('QR code gerado');
@@ -82,6 +83,9 @@ client.on('message_create', async (msg) => {
         } else {
             await handleTextMessage(msg);
         }
+
+        // Resetar a sessão após processar a mensagem
+        resetSessionAfterInactivity(msg.from);
     } catch (error) {
         logger.error('Erro ao processar mensagem:', error);
         await msg.reply('Desculpe, ocorreu um erro inesperado. Por favor, tente novamente mais tarde.');
@@ -102,47 +106,6 @@ async function shouldRespondInGroup(msg, chat) {
 
     return isBotMentioned || isReplyToBot || isBotNameMentioned;
 }
-
-async function handleMessage(msg) {
-    const userId = msg.from;
-    let session = userSessions.get(userId);
-    
-    if (!session) {
-        session = { introductionGiven: false };
-        userSessions.set(userId, session);
-    }
-
-    let response = '';
-    
-    if (!session.introductionGiven) {
-        response += "Olá! 😊 Sou a Dra. Amelie, uma androide programada para oferecer apoio e suporte a pessoas neurodivergentes. Estou aqui para te ouvir, te ajudar e te dar um abraço virtual se precisar. 🤗\n\n";
-        session.introductionGiven = true;
-    }
-
-    // Gere a resposta específica para a mensagem do usuário
-    const specificResponse = await generateResponse(msg.body);
-    response += specificResponse;
-
-    await msg.reply(response);
-}
-
-// Função para resetar a sessão após um período de inatividade
-function resetSessionAfterInactivity(userId, inactivityPeriod = 3600000) { // 1 hora
-    setTimeout(() => {
-        userSessions.delete(userId);
-    }, inactivityPeriod);
-}
-
-function resetSessionAfterInactivity(userId, inactivityPeriod = 3600000) { // 1 hora
-    setTimeout(() => {
-        userSessions.delete(userId);
-    }, inactivityPeriod);
-}
-
-client.initialize();
-
-// Chame esta função após cada mensagem processada
-resetSessionAfterInactivity(msg.from);
 
 async function handleCommand(msg) {
     const [command, ...args] = msg.body.slice(1).split(' ');
@@ -487,6 +450,12 @@ async function sendLongMessage(msg, text) {
         logger.error('Erro ao enviar mensagem:', error);
         await msg.reply('Desculpe, ocorreu um erro ao enviar a resposta. Por favor, tente novamente.');
     }
+}
+
+function resetSessionAfterInactivity(userId, inactivityPeriod = 3600000) { // 1 hora
+    setTimeout(() => {
+        userSessions.delete(userId);
+    }, inactivityPeriod);
 }
 
 client.initialize();
