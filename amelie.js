@@ -14,7 +14,7 @@ const BOT_NAME = process.env.BOT_NAME || 'Amelie';
 
 // Configuração do logger
 const logger = winston.createLogger({
-    level: 'info',
+    level: 'debug',
     format: winston.format.combine(
         winston.format.timestamp(),
         winston.format.json()
@@ -37,7 +37,7 @@ const imageModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 // Configuração padrão
 const defaultConfig = {
-    temperature: 0.6,
+    temperature: 1.5,
     topK: 100,
     topP: 0.95,
     maxOutputTokens: 1024,
