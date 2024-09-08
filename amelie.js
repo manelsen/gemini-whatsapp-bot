@@ -184,7 +184,7 @@ async function handleCommand(msg) {
                 await msg.reply('Comando desconhecido. Use !help para ver os comandos disponíveis.');
         }
     } catch (error) {
-        logger.error(`Erro ao executar comando: ${error}`;
+        logger.error(`Erro ao executar comando: ${error}`);
         await msg.reply('Desculpe, ocorreu um erro ao executar o comando. Por favor, tente novamente.');
     }
 }
