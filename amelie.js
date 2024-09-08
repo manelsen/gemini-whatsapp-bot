@@ -226,7 +226,6 @@ async function handlePromptCommand(msg, args) {
                 const prompt = await getSystemPrompt(userId, name);
                 if (prompt) {
                     await setActiveSystemPrompt(userId, name
-                        await setActiveSystemPrompt(userId, name);
                     await msg.reply(`System Instruction "${name}" ativada para este chat.`);
                 } else {
                     await msg.reply(`System Instruction "${name}" não encontrada.`);
