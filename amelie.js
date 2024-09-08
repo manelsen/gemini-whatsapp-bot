@@ -209,36 +209,26 @@ async function handleTextMessage(msg) {
 
 async function handleAudioMessage(msg, audioData, chatId) {
     try {
-        const isLargeFile = audioData.data.length > 20 * 1024 * 1024; // 20MB
-        let audioContent;
+        const tempFilePath = path.join(__dirname, `temp_audio_${chatId}${path.extname(audioData.filename || '.mp3')}`);
+        await fs.writeFile(tempFilePath, audioData.data);
 
-        if (isLargeFile) {
-            // Para arquivos grandes, use o File API
-            const tempFilePath = path.join(__dirname, `temp_audio_${chatId}${path.extname(audioData.filename)}`);
-            await fs.writeFile(tempFilePath, audioData.data);
-            const uploadedFile = await fileManager.uploadFile(tempFilePath, {
-                mimeType: audioData.mimetype,
-            });
-            audioContent = {
+        logger.info(`Processando arquivo de áudio: ${tempFilePath}`);
+
+        // Upload do arquivo usando o File API
+        const uploadedFile = await fileManager.uploadFile(tempFilePath, {
+            mimeType: audioData.mimetype || 'audio/mp3',
+        });
+
+        logger.info(`Arquivo de áudio enviado com sucesso: ${uploadedFile.file.uri}`);
+
+        // Gerar conteúdo usando o modelo
+        const result = await model.generateContent([
+            {
                 fileData: {
                     mimeType: uploadedFile.file.mimeType,
                     fileUri: uploadedFile.file.uri
                 }
-            };
-            await fs.unlink(tempFilePath); // Remover arquivo temporário
-        } else {
-            // Para arquivos pequenos, use inline data
-            audioContent = {
-                inlineData: {
-                    data: audioData.data.toString('base64'),
-                    mimeType: audioData.mimetype
-                }
-            };
-        }
-
-        // Gerar conteúdo usando o modelo
-        const result = await model.generateContent([
-            audioContent,
+            },
             { text: "Por favor, transcreva o áudio e depois resuma o conteúdo em português." }
         ]);
 
@@ -248,6 +238,10 @@ async function handleAudioMessage(msg, audioData, chatId) {
         // Atualizar o histórico de mensagens
         await updateMessageHistory(chatId, msg.author || msg.from, '[Áudio]', false);
         await updateMessageHistory(chatId, BOT_NAME, response, true);
+
+        // Limpar arquivo temporário
+        await fs.unlink(tempFilePath);
+        logger.info(`Arquivo temporário removido: ${tempFilePath}`);
 
     } catch (error) {
         logger.error(`Erro ao processar mensagem de áudio: ${error.message}`, { error });
