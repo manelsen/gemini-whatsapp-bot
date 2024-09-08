@@ -17,8 +17,10 @@ const logger = winston.createLogger({
     level: 'debug',
     format: winston.format.combine(
         winston.format.timestamp(),
-        winston.format.json()
-    ),
+        winston.format.printf(info  => {
+                       return `${info.timestamp} [${info.level}]: ${info.message} ${JSON.stringify(info.data || '')}`;
+                   })
+               ),
     transports: [
         new winston.transports.Console(),
         new winston.transports.File({ filename: 'bot.log' })
