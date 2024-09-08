@@ -300,7 +300,7 @@ async function generateResponseWithText(userPrompt, chatId) {
             maxOutputTokens: userConfig.maxOutputTokens
         };
 
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
         const chat = model.startChat(validConfig);
 
         if (userConfig.systemInstructions) {
@@ -483,6 +483,7 @@ async function handleConfigCommand(msg, args, chatId) {
 function setSystemPrompt(chatId, name, text) {
     return new Promise((resolve, reject) => {
         const formattedText = `Seu nome é ${name}. ${text}`;
+        BOT_NAME = name
         promptsDb.update({ chatId, name }, { chatId, name, text: formattedText }, { upsert: true }, (err) => {
             if (err) reject(err);
             else resolve();
