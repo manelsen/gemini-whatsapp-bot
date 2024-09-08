@@ -32,8 +32,9 @@ const configDb = new Datastore({ filename: 'config.db', autoload: true });
 
 // Configuração da IA do Google
 const genAI = new GoogleGenerativeAI(GOOGLE_AI_KEY);
-const textModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-const imageModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+// Mapa para armazenar modelos com System Instructions
+const userModels = new Map();
 
 // Configuração padrão
 const defaultConfig = {
@@ -43,12 +44,29 @@ const defaultConfig = {
     maxOutputTokens: 1024,
 };
 
+// Função para criar um novo modelo com System Instruction
+function createModelWithSystemInstruction(systemInstruction) {
+    return genAI.getGenerativeModel({
+        model: "gemini-1.5-flash",
+        generationConfig: defaultConfig,
+        safetySettings: [
+            {
+                category: "HARM_CATEGORY_HARASSMENT",
+                threshold: "BLOCK_MEDIUM_AND_ABOVE"
+            },
+            // Adicione outras configurações de segurança conforme necessário
+        ],
+        systemInstruction: systemInstruction,
+    });
+}
+
+// Modelo padrão sem System Instruction
+let defaultModel = createModelWithSystemInstruction("");
+
 // Configuração do cliente WhatsApp
 const client = new Client({
     authStrategy: new LocalAuth()
 });
-
-const userSessions = new Map();
 
 client.on('qr', qr => {
     qrcode.generate(qr, {small: true});
@@ -118,10 +136,11 @@ async function handleCommand(msg) {
             await msg.reply(
                 'Comandos disponíveis:\n' +
                 '!reset - Limpa o histórico de conversa\n' +
-                '!prompt set <nome> <texto> - Define um novo system prompt\n' +
-                '!prompt get <nome> - Mostra um system prompt existente\n' +
-                '!prompt list - Lista todos os system prompts\n' +
-                '!prompt use <nome> - Usa um system prompt específico\n' +
+                '!prompt set <nome> <texto> - Define uma nova System Instruction\n' +
+                '!prompt get <nome> - Mostra uma System Instruction existente\n' +
+                '!prompt list - Lista todas as System Instructions\n' +
+                '!prompt use <nome> - Usa uma System Instruction específica\n' +
+                '!prompt clear - Remove a System Instruction ativa\n' +
                 '!config set <param> <valor> - Define um parâmetro de configuração\n' +
                 '!config get [param] - Mostra a configuração atual\n' +
                 '!help - Mostra esta mensagem de ajuda'
@@ -140,49 +159,55 @@ async function handleCommand(msg) {
 
 async function handlePromptCommand(msg, args) {
     const [subcommand, name, ...rest] = args;
+    const userId = msg.from;
+
     switch (subcommand) {
         case 'set':
             if (name && rest.length > 0) {
                 const promptText = rest.join(' ');
-                await setSystemPrompt(name, promptText);
-                await msg.reply(`System prompt "${name}" definido com sucesso.`);
+                await setSystemPrompt(userId, name, promptText);
+                await msg.reply(`System Instruction "${name}" definida com sucesso.`);
             } else {
                 await msg.reply('Uso correto: !prompt set <nome> <texto>');
             }
             break;
         case 'get':
             if (name) {
-                const prompt = await getSystemPrompt(name);
+                const prompt = await getSystemPrompt(userId, name);
                 if (prompt) {
-                    await msg.reply(`System prompt "${name}":\n${prompt.text}`);
+                    await msg.reply(`System Instruction "${name}":\n${prompt.text}`);
                 } else {
-                    await msg.reply(`System prompt "${name}" não encontrado.`);
+                    await msg.reply(`System Instruction "${name}" não encontrada.`);
                 }
             } else {
                 await msg.reply('Uso correto: !prompt get <nome>');
             }
             break;
         case 'list':
-            const prompts = await listSystemPrompts();
+            const prompts = await listSystemPrompts(userId);
             if (prompts.length > 0) {
                 const promptList = prompts.map(p => p.name).join(', ');
-                await msg.reply(`System prompts disponíveis: ${promptList}`);
+                await msg.reply(`System Instructions disponíveis: ${promptList}`);
             } else {
-                await msg.reply('Nenhum system prompt definido.');
+                await msg.reply('Nenhuma System Instruction definida.');
             }
             break;
         case 'use':
             if (name) {
-                const prompt = await getSystemPrompt(name);
+                const prompt = await getSystemPrompt(userId, name);
                 if (prompt) {
-                    await setActiveSystemPrompt(msg.from, name);
-                    await msg.reply(`System prompt "${name}" ativado para este chat.`);
+                    await setActiveSystemPrompt(userId, name);
+                    await msg.reply(`System Instruction "${name}" ativada para este chat.`);
                 } else {
-                    await msg.reply(`System prompt "${name}" não encontrado.`);
+                    await msg.reply(`System Instruction "${name}" não encontrada.`);
                 }
             } else {
                 await msg.reply('Uso correto: !prompt use <nome>');
             }
+            break;
+        case 'clear':
+            await clearActiveSystemPrompt(userId);
+            await msg.reply('System Instruction removida. Usando o modelo padrão.');
             break;
         default:
             await msg.reply('Subcomando de prompt desconhecido. Use !help para ver os comandos disponíveis.');
@@ -236,13 +261,12 @@ async function handleTextMessage(msg) {
         const userId = msg.from;
         
         const history = await getMessageHistory(userId);
-        const activePrompt = await getActiveSystemPrompt(userId);
+        const model = getModelForUser(userId);
         
-        const systemPromptText = activePrompt ? activePrompt.text : "";
         const userPromptText = history.join('\n\n') + '\n\n' + msg.body;
         
         console.log('Gerando resposta para:', userPromptText);
-        const response = await generateResponseWithText(systemPromptText, userPromptText, userId);
+        const response = await generateResponseWithText(model, userPromptText, userId);
         console.log('Resposta gerada:', response);
         
         if (!response || response.trim() === '') {
@@ -269,7 +293,7 @@ async function handleImageMessage(msg, imageData) {
     }
 }
 
-async function generateResponseWithText(systemPrompt, userPrompt, userId) {
+async function generateResponseWithText(model, userPrompt, userId) {
     try {
         const userConfig = await getConfig(userId);
         
@@ -280,12 +304,8 @@ async function generateResponseWithText(systemPrompt, userPrompt, userId) {
 
         console.log('Configuração filtrada:', filteredConfig);
 
-        const result = await textModel.generateContent({
-            contents: [
-                { role: "user", parts: [{ text: systemPrompt }] },
-                { role: "model", parts: [{ text: "Entendido. Vou seguir essas instruções." }] },
-                { role: "user", parts: [{ text: userPrompt }] }
-            ],
+        const result = await model.generateContent({
+            contents: [{ role: "user", parts: [{ text: userPrompt }] }],
             generationConfig: filteredConfig,
         });
 
@@ -373,27 +393,27 @@ function resetHistory(userId) {
     });
 }
 
-function setSystemPrompt(name, text) {
+function setSystemPrompt(userId, name, text) {
     return new Promise((resolve, reject) => {
-        promptsDb.update({ name }, { name, text }, { upsert: true }, (err) => {
+        promptsDb.update({ userId, name }, { userId, name, text }, { upsert: true }, (err) => {
             if (err) reject(err);
             else resolve();
         });
     });
 }
 
-function getSystemPrompt(name) {
+function getSystemPrompt(userId, name) {
     return new Promise((resolve, reject) => {
-        promptsDb.findOne({ name }, (err, doc) => {
+        promptsDb.findOne({ userId, name }, (err, doc) => {
             if (err) reject(err);
             else resolve(doc);
         });
     });
 }
 
-function listSystemPrompts() {
+function listSystemPrompts(userId) {
     return new Promise((resolve, reject) => {
-        promptsDb.find({}, (err, docs) => {
+        promptsDb.find({ userId }, (err, docs) => {
             if (err) reject(err);
             else resolve(docs);
         });
@@ -402,7 +422,30 @@ function listSystemPrompts() {
 
 function setActiveSystemPrompt(userId, promptName) {
     return new Promise((resolve, reject) => {
-        messagesDb.update({ userId, type: 'activePrompt' }, { userId, type: 'activePrompt', promptName }, { upsert: true }, (err) => {
+        getSystemPrompt(userId, promptName).then(prompt => {
+            if (prompt) {
+                const model = createModelWithSystemInstruction(prompt.text);
+                userModels.set(userId, model);
+                messagesDb.update(
+                    { userId, type: 'activePrompt' },
+                    { userId, type: 'activePrompt', promptName },
+                    { upsert: true },
+                    (err) => {
+                        if (err) reject(err);
+                        else resolve();
+                    }
+                );
+            } else {
+                reject(new Error('System Instruction não encontrada'));
+            }
+        }).catch(reject);
+    });
+}
+
+function clearActiveSystemPrompt(userId) {
+    return new Promise((resolve, reject) => {
+        userModels.delete(userId);
+        messagesDb.remove({ userId, type: 'activePrompt' }, {}, (err) => {
             if (err) reject(err);
             else resolve();
         });
@@ -414,12 +457,16 @@ function getActiveSystemPrompt(userId) {
         messagesDb.findOne({ userId, type: 'activePrompt' }, (err, doc) => {
             if (err) reject(err);
             else if (doc) {
-                getSystemPrompt(doc.promptName).then(resolve).catch(reject);
+                getSystemPrompt(userId, doc.promptName).then(resolve).catch(reject);
             } else {
                 resolve(null);
             }
         });
     });
+}
+
+function getModelForUser(userId) {
+    return userModels.get(userId) || defaultModel;
 }
 
 function setConfig(userId, param, value) {
@@ -458,7 +505,6 @@ async function getConfig(userId) {
         });
     });
 }
-
 
 async function sendLongMessage(msg, text) {
     try {
