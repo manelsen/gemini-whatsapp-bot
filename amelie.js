@@ -100,7 +100,7 @@ client.on('message_create', async (msg) => {
         const chat = await msg.getChat();
         await chat.sendSeen();
 
-        logger.info(`Mensagem recebida: ${msg}`);
+        logger.info(`Mensagem recebida: ${msg.author} -> ${msg.body}`);
 
         const chatId = chat.id._serialized;
 
