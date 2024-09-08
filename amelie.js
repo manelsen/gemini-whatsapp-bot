@@ -289,14 +289,14 @@ async function handleTextMessage(msg) {
     try {
         const userId = msg.from;
 
+        // Adicionar a nova mensagem ao histórico
+        await updateMessageHistory(userId, msg.body, '');
+
         // Manter o histórico de mensagens
         const history = await getMessageHistory(userId);
 
         // Identificar a última pergunta no histórico ANTES de adicionar a nova mensagem
         const lastQuestion = getLastQuestion(history);
-
-        // Adicionar a nova mensagem ao histórico
-        await updateMessageHistory(userId, msg.body, '');
 
         const model = getModelForUser(userId);
 
