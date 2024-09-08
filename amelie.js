@@ -273,18 +273,27 @@ async function handleImageMessage(msg, imageData) {
 
 async function generateResponseWithText(systemPrompt, userPrompt, userId) {
     try {
-        const config = await getConfig(userId);
+        const userConfig = await getConfig(userId);
+        
+        // Filtra apenas as configurações válidas
+        const validConfigKeys = ['temperature', 'topK', 'topP', 'maxOutputTokens'];
+        const filteredConfig = Object.fromEntries(
+            Object.entries(userConfig).filter(([key]) => validConfigKeys.includes(key))
+        );
+
         const result = await textModel.generateContent({
             contents: [
                 { role: "user", parts: [{ text: systemPrompt }] },
                 { role: "model", parts: [{ text: "Entendido. Vou seguir essas instruções." }] },
                 { role: "user", parts: [{ text: userPrompt }] }
             ],
-            generationConfig: config,
+            generationConfig: filteredConfig,
         });
-        return result.response.text();
     } catch (error) {
         logger.error('Erro ao gerar resposta de texto:', error);
+        if (error.message.includes('SAFETY')) {
+            return "Desculpe, não posso gerar uma resposta para essa solicitação devido a restrições de segurança. Por favor, tente reformular sua pergunta de uma maneira diferente.";
+        }
         throw new Error("Falha ao gerar resposta de texto");
     }
 }
@@ -420,10 +429,25 @@ async function getConfig(userId) {
     return new Promise((resolve, reject) => {
         configDb.findOne({ userId }, (err, doc) => {
             if (err) reject(err);
-            else resolve({ ...defaultConfig, ...(doc || {}) });
+            else {
+                const validConfigKeys = ['temperature', 'topK', 'topP', 'maxOutputTokens'];
+                const userConfig = doc || {};
+                const filteredConfig = {};
+                
+                for (const key of validConfigKeys) {
+                    if (userConfig.hasOwnProperty(key)) {
+                        filteredConfig[key] = userConfig[key];
+                    } else if (defaultConfig.hasOwnProperty(key)) {
+                        filteredConfig[key] = defaultConfig[key];
+                    }
+                }
+                
+                resolve(filteredConfig);
+            }
         });
     });
 }
+
 
 async function sendLongMessage(msg, text) {
     try {
