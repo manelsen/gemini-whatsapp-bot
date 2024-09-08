@@ -234,20 +234,7 @@ async function handleConfigCommand(msg, args) {
 async function handleTextMessage(msg) {
     try {
         const userId = msg.from;
-        let session = userSessions.get(userId);
         
-        if (!session) {
-            session = { introductionGiven: false };
-            userSessions.set(userId, session);
-        }
-
-        let response = '';
-        
-        if (!session.introductionGiven) {
-            response += "Olá! 😊 Sou a Dra. Amelie, uma androide programada para oferecer apoio e suporte a pessoas neurodivergentes. Estou aqui para te ouvir, te ajudar e te dar um abraço virtual se precisar. 🤗\n\n";
-            session.introductionGiven = true;
-        }
-
         const history = await getMessageHistory(userId);
         const activePrompt = await getActiveSystemPrompt(userId);
         
@@ -255,12 +242,8 @@ async function handleTextMessage(msg) {
         const userPromptText = history.join('\n\n') + '\n\n' + msg.body;
         
         console.log('Gerando resposta para:', userPromptText);
-        const specificResponse = await generateResponseWithText(systemPromptText, userPromptText, userId);
-        console.log('Resposta específica gerada:', specificResponse);
-        
-        response += specificResponse;
-        
-        console.log('Resposta final:', response);
+        const response = await generateResponseWithText(systemPromptText, userPromptText, userId);
+        console.log('Resposta gerada:', response);
         
         if (!response || response.trim() === '') {
             response = "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente.";
@@ -496,11 +479,11 @@ async function sendLongMessage(msg, text) {
     }
 }
 
-
-
 function resetSessionAfterInactivity(userId, inactivityPeriod = 3600000) { // 1 hora
     setTimeout(() => {
-        userSessions.delete(userId);
+        // Aqui você pode adicionar qualquer lógica de reset que seja necessária
+        // Por exemplo, limpar o histórico de mensagens ou redefinir configurações específicas do usuário
+        console.log(`Sessão resetada para o usuário ${userId} após inatividade`);
     }, inactivityPeriod);
 }
 
