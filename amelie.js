@@ -17,8 +17,9 @@ const logger = winston.createLogger({
     level: 'debug',
     format: winston.format.combine(
         winston.format.timestamp(),
-        winston.format.printf(info => {
-            return `${info.timestamp} [${info.level}]: ${info.message} ${JSON.stringify(info.data || '')}`;
+        winston.format.printf(({ timestamp, level, message, ...rest }) => {
+            const extraData = Object.keys(rest).length ? JSON.stringify(rest, null, 2) : '';
+            return `${timestamp} [${level}]: ${message} ${extraData}`;
         })
     ),
     transports: [
@@ -125,7 +126,7 @@ client.on('message_create', async (msg) => {
 
         resetSessionAfterInactivity(chatId);
     } catch (error) {
-        logger.error(`Erro ao processar mensagem: ${error}`);
+        logger.error(`Erro ao processar mensagem: ${error.message}`, { error });
         await msg.reply('Desculpe, ocorreu um erro inesperado. Por favor, tente novamente mais tarde.');
     }
 });
@@ -179,7 +180,7 @@ async function handleCommand(msg, chatId) {
                 await msg.reply('Comando desconhecido. Use !help para ver os comandos disponíveis.');
         }
     } catch (error) {
-        logger.error(`Erro ao executar comando: ${error}`);
+        logger.error(`Erro ao executar comando: ${error.message}`, { error });
         await msg.reply('Desculpe, ocorreu um erro ao executar o comando. Por favor, tente novamente.');
     }
 }
@@ -215,7 +216,7 @@ async function handleTextMessage(msg) {
         await updateMessageHistory(chatId, BOT_NAME, response, true);
         await sendLongMessage(msg, response);
     } catch (error) {
-        logger.error(`Erro ao processar mensagem de texto: ${error}`);
+        logger.error(`Erro ao processar mensagem de texto: ${error.message}`, { error });
         await msg.reply('Desculpe, ocorreu um erro ao processar sua mensagem. Por favor, tente novamente.');
     }
 }
@@ -226,7 +227,7 @@ async function handleImageMessage(msg, imageData, chatId) {
         const response = await generateResponseWithImageAndText(imageData.data, caption);
         await sendLongMessage(msg, response);
     } catch (error) {
-        logger.error(`Erro ao processar imagem: ${error}`);
+        logger.error(`Erro ao processar imagem: ${error.message}`, { error });
         await msg.reply('Desculpe, não foi possível processar sua imagem. Por favor, tente novamente.');
     }
 }
@@ -240,7 +241,7 @@ async function generateResponseWithText(model, userPrompt, chatId) {
             Object.entries(userConfig).filter(([key]) => validConfigKeys.includes(key))
         );
 
-        logger.debug(`Configuração filtrada: ${filteredConfig}`);
+        logger.debug('Configuração filtrada:', { config: filteredConfig });
 
         const result = await model.generateContent({
             contents: [{ role: "user", parts: [{ text: userPrompt }] }],
@@ -255,8 +256,7 @@ async function generateResponseWithText(model, userPrompt, chatId) {
 
         return responseText;
     } catch (error) {
-        logger.error(`Erro detalhado em generateResponseWithText: ${error}`);
-        logger.error(`Erro ao gerar resposta de texto: ${error}`);
+        logger.error(`Erro ao gerar resposta de texto: ${error.message}`, { error });
 
         if (error.message.includes('SAFETY')) {
             return "Desculpe, não posso gerar uma resposta para essa solicitação devido a restrições de segurança. Por favor, tente reformular sua pergunta de uma maneira diferente.";
@@ -276,10 +276,10 @@ async function generateResponseWithImageAndText(imageData, text) {
                 }
             }
         ];
-        const result = await imageModel.generateContent([imageParts[0], text]);
+        const result = await defaultModel.generateContent([imageParts[0], text]);
         return result.response.text();
     } catch (error) {
-        logger.error(`Erro ao gerar resposta de imagem: ${error}`);
+        logger.error(`Erro ao gerar resposta de imagem: ${error.message}`, { error });
         throw new Error("Falha ao processar a imagem");
     }
 }
@@ -386,200 +386,200 @@ async function handlePromptCommand(msg, args, chatId) {
             break;
         default:
             await msg.reply('Subcomando de prompt desconhecido. Use !help para ver os comandos disponíveis.');
-        }
     }
-    
-    async function handleConfigCommand(msg, args, chatId) {
-        const [subcommand, param, value] = args;
-    
-        switch (subcommand) {
-            case 'set':
-                if (param && value) {
-                    if (['temperature', 'topK', 'topP', 'maxOutputTokens'].includes(param)) {
-                        const numValue = parseFloat(value);
-                        if (!isNaN(numValue)) {
-                            await setConfig(chatId, param, numValue);
-                            await msg.reply(`Parâmetro ${param} definido como ${numValue}`);
-                        } else {
-                            await msg.reply(`Valor inválido para ${param}. Use um número.`);
-                        }
+}
+
+async function handleConfigCommand(msg, args, chatId) {
+    const [subcommand, param, value] = args;
+
+    switch (subcommand) {
+        case 'set':
+            if (param && value) {
+                if (['temperature', 'topK', 'topP', 'maxOutputTokens'].includes(param)) {
+                    const numValue = parseFloat(value);
+                    if (!isNaN(numValue)) {
+                        await setConfig(chatId, param, numValue);
+                        await msg.reply(`Parâmetro ${param} definido como ${numValue}`);
                     } else {
-                        await msg.reply(`Parâmetro desconhecido: ${param}`);
+                        await msg.reply(`Valor inválido para ${param}. Use um número.`);
                     }
                 } else {
-                    await msg.reply('Uso correto: !config set <param> <valor>');
+                    await msg.reply(`Parâmetro desconhecido: ${param}`);
                 }
-                break;
-            case 'get':
-                const config = await getConfig(chatId);
-                if (param) {
-                    if (config.hasOwnProperty(param)) {
-                        await msg.reply(`${param}: ${config[param]}`);
-                    } else {
-                        await msg.reply(`Parâmetro desconhecido: ${param}`);
-                    }
-                } else {
-                    const configString = Object.entries(config)
-                        .map(([key, value]) => `${key}: ${value}`)
-                        .join('\n');
-                    await msg.reply(`Configuração atual:\n${configString}`);
-                }
-                break;
-            default:
-                await msg.reply('Subcomando de config desconhecido. Use !help para ver os comandos disponíveis.');
-        }
-    }
-    
-    function setSystemPrompt(chatId, name, text) {
-        return new Promise((resolve, reject) => {
-            promptsDb.update({ chatId, name }, { chatId, name, text }, { upsert: true }, (err) => {
-                if (err) reject(err);
-                else resolve();
-            });
-        });
-    }
-    
-    function getSystemPrompt(chatId, name) {
-        return new Promise((resolve, reject) => {
-            promptsDb.findOne({ chatId, name }, (err, doc) => {
-                if (err) reject(err);
-                else resolve(doc);
-            });
-        });
-    }
-    
-    function listSystemPrompts(chatId) {
-        return new Promise((resolve, reject) => {
-            promptsDb.find({ chatId }, (err, docs) => {
-                if (err) reject(err);
-                else resolve(docs);
-            });
-        });
-    }
-    
-    function setActiveSystemPrompt(chatId, promptName) {
-        return new Promise((resolve, reject) => {
-            getSystemPrompt(chatId, promptName).then(prompt => {
-                if (prompt) {
-                    const model = createModelWithSystemInstruction(prompt.text);
-                    userModels.set(chatId, model);
-                    messagesDb.update(
-                        { chatId, type: 'activePrompt' },
-                        { chatId, type: 'activePrompt', promptName },
-                        { upsert: true },
-                        (err) => {
-                            if (err) reject(err);
-                            else resolve();
-                        }
-                    );
-                } else {
-                    reject(new Error('System Instruction não encontrada'));
-                }
-            }).catch(reject);
-        });
-    }
-    
-    function clearActiveSystemPrompt(chatId) {
-        return new Promise((resolve, reject) => {
-            userModels.delete(chatId);
-            messagesDb.remove({ chatId, type: 'activePrompt' }, {}, (err) => {
-                if (err) reject(err);
-                else resolve();
-            });
-        });
-    }
-    
-    function getActiveSystemPrompt(chatId) {
-        return new Promise((resolve, reject) => {
-            messagesDb.findOne({ chatId, type: 'activePrompt' }, (err, doc) => {
-                if (err) reject(err);
-                else if (doc) {
-                    getSystemPrompt(chatId, doc.promptName).then(resolve).catch(reject);
-                } else {
-                    resolve(null);
-                }
-            });
-        });
-    }
-    
-    function getModelForUser(chatId) {
-        return userModels.get(chatId) || defaultModel;
-    }
-    
-    function setConfig(chatId, param, value) {
-        return new Promise((resolve, reject) => {
-            configDb.update(
-                { chatId },
-                { $set: { [param]: value } },
-                { upsert: true },
-                (err) => {
-                    if (err) reject(err);
-                    else resolve();
-                }
-            );
-        });
-    }
-    
-    async function getConfig(chatId) {
-        return new Promise((resolve, reject) => {
-            configDb.findOne({ chatId }, (err, doc) => {
-                if (err) reject(err);
-                else {
-                    const validConfigKeys = ['temperature', 'topK', 'topP', 'maxOutputTokens'];
-                    const userConfig = doc || {};
-                    const filteredConfig = {};
-    
-                    for (const key of validConfigKeys) {
-                        if (userConfig.hasOwnProperty(key)) {
-                            filteredConfig[key] = userConfig[key];
-                        } else if (defaultConfig.hasOwnProperty(key)) {
-                            filteredConfig[key] = defaultConfig[key];
-                        }
-                    }
-    
-                    resolve(filteredConfig);
-                }
-            });
-        });
-    }
-    
-    async function sendLongMessage(msg, text) {
-        try {
-            if (!text || typeof text !== 'string' || text.trim() === '') {
-                logger.error('Tentativa de enviar mensagem inválida:', text);
-                text = "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente.";
+            } else {
+                await msg.reply('Uso correto: !config set <param> <valor>');
             }
-    
-            let trimmedText = text.trim();
-            trimmedText = trimmedText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n{3,}/g, '\n\n');
-    
-            logger.debug('Enviando mensagem:', trimmedText);
-            await msg.reply(trimmedText);
-        } catch (error) {
-            logger.error(`Erro ao enviar mensagem: ${error}`);
-            await msg.reply('Desculpe, ocorreu um erro ao enviar a resposta. Por favor, tente novamente.');
+            break;
+        case 'get':
+            const config = await getConfig(chatId);
+            if (param) {
+                if (config.hasOwnProperty(param)) {
+                    await msg.reply(`${param}: ${config[param]}`);
+                } else {
+                    await msg.reply(`Parâmetro desconhecido: ${param}`);
+                }
+            } else {
+                const configString = Object.entries(config)
+                    .map(([key, value]) => `${key}: ${value}`)
+                    .join('\n');
+                await msg.reply(`Configuração atual:\n${configString}`);
+            }
+            break;
+        default:
+            await msg.reply('Subcomando de config desconhecido. Use !help para ver os comandos disponíveis.');
+    }
+}
+
+function setSystemPrompt(chatId, name, text) {
+    return new Promise((resolve, reject) => {
+        promptsDb.update({ chatId, name }, { chatId, name, text }, { upsert: true }, (err) => {
+            if (err) reject(err);
+            else resolve();
+        });
+    });
+}
+
+function getSystemPrompt(chatId, name) {
+    return new Promise((resolve, reject) => {
+        promptsDb.findOne({ chatId, name }, (err, doc) => {
+            if (err) reject(err);
+            else resolve(doc);
+        });
+    });
+}
+
+function listSystemPrompts(chatId) {
+    return new Promise((resolve, reject) => {
+        promptsDb.find({ chatId }, (err, docs) => {
+            if (err) reject(err);
+            else resolve(docs);
+        });
+    });
+}
+
+function setActiveSystemPrompt(chatId, promptName) {
+    return new Promise((resolve, reject) => {
+        getSystemPrompt(chatId, promptName).then(prompt => {
+            if (prompt) {
+                const model = createModelWithSystemInstruction(prompt.text);
+                userModels.set(chatId, model);
+                messagesDb.update(
+                    { chatId, type: 'activePrompt' },
+                    { chatId, type: 'activePrompt', promptName },
+                    { upsert: true },
+                    (err) => {
+                        if (err) reject(err);
+                        else resolve();
+                    }
+                );
+            } else {
+                reject(new Error('System Instruction não encontrada'));
+            }
+        }).catch(reject);
+    });
+}
+
+function clearActiveSystemPrompt(chatId) {
+    return new Promise((resolve, reject) => {
+        userModels.delete(chatId);
+        messagesDb.remove({ chatId, type: 'activePrompt' }, {}, (err) => {
+            if (err) reject(err);
+            else resolve();
+        });
+    });
+}
+
+function getActiveSystemPrompt(chatId) {
+    return new Promise((resolve, reject) => {
+        messagesDb.findOne({ chatId, type: 'activePrompt' }, (err, doc) => {
+            if (err) reject(err);
+            else if (doc) {
+                getSystemPrompt(chatId, doc.promptName).then(resolve).catch(reject);
+            } else {
+                resolve(null);
+            }
+        });
+    });
+}
+
+function getModelForUser(chatId) {
+    return userModels.get(chatId) || defaultModel;
+}
+
+function setConfig(chatId, param, value) {
+    return new Promise((resolve, reject) => {
+        configDb.update(
+            { chatId },
+            { $set: { [param]: value } },
+            { upsert: true },
+            (err) => {
+                if (err) reject(err);
+                else resolve();
+            }
+        );
+    });
+}
+
+async function getConfig(chatId) {
+    return new Promise((resolve, reject) => {
+        configDb.findOne({ chatId }, (err, doc) => {
+            if (err) reject(err);
+            else {
+                const validConfigKeys = ['temperature', 'topK', 'topP', 'maxOutputTokens'];
+                const userConfig = doc || {};
+                const filteredConfig = {};
+
+                for (const key of validConfigKeys) {
+                    if (userConfig.hasOwnProperty(key)) {
+                        filteredConfig[key] = userConfig[key];
+                    } else if (defaultConfig.hasOwnProperty(key)) {
+                        filteredConfig[key] = defaultConfig[key];
+                    }
+                }
+
+                resolve(filteredConfig);
+            }
+        });
+    });
+}
+
+async function sendLongMessage(msg, text) {
+    try {
+        if (!text || typeof text !== 'string' || text.trim() === '') {
+            logger.error('Tentativa de enviar mensagem inválida:', { text });
+            text = "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente.";
         }
+
+        let trimmedText = text.trim();
+        trimmedText = trimmedText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n{3,}/g, '\n\n');
+
+        logger.debug('Enviando mensagem:', { text: trimmedText });
+        await msg.reply(trimmedText);
+    } catch (error) {
+        logger.error(`Erro ao enviar mensagem: ${error.message}`, { error });
+        await msg.reply('Desculpe, ocorreu um erro ao enviar a resposta. Por favor, tente novamente.');
     }
-    
-    function resetSessionAfterInactivity(chatId, inactivityPeriod = 3600000) { // 1 hora
-        setTimeout(() => {
-            logger.info(`Sessão resetada para o chat ${chatId} após inatividade`);
-        }, inactivityPeriod);
-    }
-    
-    function isSimilar(text1, text2) {
-        // Implemente sua lógica de comparação de similaridade aqui
-        // Você pode usar algoritmos como Levenshtein distance, cosine similarity, etc.
-        return false; // Placeholder
-    }
-    
-    client.initialize();
-    
-    process.on('unhandledRejection', (reason, promise) => {
-        logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
-    });
-    
-    process.on('uncaughtException', (error) => {
-        logger.error(`Uncaught Exception: ${error}`);
-        process.exit(1);
-    });
+}
+
+function resetSessionAfterInactivity(chatId, inactivityPeriod = 3600000) { // 1 hora
+    setTimeout(() => {
+        logger.info(`Sessão resetada para o chat ${chatId} após inatividade`);
+    }, inactivityPeriod);
+}
+
+function isSimilar(text1, text2) {
+    // Implemente sua lógica de comparação de similaridade aqui
+    // Você pode usar algoritmos como Levenshtein distance, cosine similarity, etc.
+    return false; // Placeholder
+}
+
+client.initialize();
+
+process.on('unhandledRejection', (reason, promise) => {
+    logger.error('Unhandled Rejection at:', { promise, reason });
+});
+
+process.on('uncaughtException', (error) => {
+    logger.error(`Uncaught Exception: ${error.message}`, { error });
+    process.exit(1);
+});
