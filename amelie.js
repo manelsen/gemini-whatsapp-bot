@@ -40,7 +40,15 @@ const configDb = new Datastore({ filename: 'config.db', autoload: true });
 const genAI = new GoogleGenerativeAI(API_KEY);
 
 // Inicialização do modelo Gemini
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const model = genAI.getGenerativeModel({ 
+    model: "gemini-1.5-flash",
+    safetySettings: [
+      { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+    ]
+  });
 
 // Inicialização do FileManager
 const fileManager = new GoogleAIFileManager(API_KEY);
