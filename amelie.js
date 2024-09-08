@@ -100,7 +100,7 @@ client.on('message_create', async (msg) => {
         const chat = await msg.getChat();
         await chat.sendSeen();
 
-        console.log('Mensagem recebida:', msg.body); // Log para debug
+        logger.info('Mensagem recebida:', msg.body); // Log para debug
 
         if (chat.isGroup) {
             const shouldRespond = await shouldRespondInGroup(msg, chat);
@@ -108,7 +108,7 @@ client.on('message_create', async (msg) => {
         }
 
         if (msg.body.startsWith('!')) {
-            console.log('Comando detectado:', msg.body); // Log para debug
+            logger.info('Comando detectado:', msg.body); // Log para debug
             await handleCommand(msg);
         } else if (msg.hasMedia) {
             const attachmentData = await msg.downloadMedia();
@@ -124,7 +124,6 @@ client.on('message_create', async (msg) => {
         // Resetar a sessão após processar a mensagem
         resetSessionAfterInactivity(msg.from);
     } catch (error) {
-        console.error('Erro ao processar mensagem:', error);
         logger.error('Erro ao processar mensagem:', error);
         await msg.reply('Desculpe, ocorreu um erro inesperado. Por favor, tente novamente mais tarde.');
     }
@@ -148,7 +147,7 @@ async function shouldRespondInGroup(msg, chat) {
 // Modificar a função handleCommand para incluir mais logs e tratamento de erros
 async function handleCommand(msg) {
     const [command, ...args] = msg.body.slice(1).split(' ');
-    console.log('Comando:', command, 'Argumentos:', args); // Log para debug
+    logger.info('Comando:', command, 'Argumentos:', args); // Log para debug
 
     try {
         switch (command.toLowerCase()) {
@@ -183,7 +182,6 @@ async function handleCommand(msg) {
                 await msg.reply('Comando desconhecido. Use !help para ver os comandos disponíveis.');
         }
     } catch (error) {
-        console.error('Erro ao executar comando:', error);
         logger.error('Erro ao executar comando:', error);
         await msg.reply('Desculpe, ocorreu um erro ao executar o comando. Por favor, tente novamente.');
     }
@@ -193,7 +191,7 @@ async function testCommand(msg) {
     try {
         await msg.reply('Comando de teste executado com sucesso!');
     } catch (error) {
-        console.error('Erro no comando de teste:', error);
+        logger.error('Erro no comando de teste:', error);
         await msg.reply('Erro ao executar o comando de teste.');
     }
 }
@@ -315,10 +313,10 @@ async function handleTextMessage(msg) {
         // Construir o prompt com o contexto e a última pergunta
         const userPromptText = history.join('\n\n') + '\n\n' + lastQuestion;
 
-        console.log('Gerando resposta para:', userPromptText);
-        console.log('Pergunta recebida: ', lastQuestion)
+        logger.info('Gerando resposta para:', userPromptText);
+        logger.info('Pergunta recebida: ', lastQuestion)
         const response = await generateResponseWithText(model, userPromptText, userId);
-        console.log('Resposta gerada:', response);
+        logger.info('Resposta gerada:', response);
 
         // Verificar se a resposta é similar à última resposta gerada
         const lastResponse = lastResponses.get(userId);
@@ -337,7 +335,6 @@ async function handleTextMessage(msg) {
         await updateMessageHistory(userId, msg.body, response);
         await sendLongMessage(msg, response);
     } catch (error) {
-        console.error('Erro detalhado em handleTextMessage:', error);
         logger.error('Erro ao processar mensagem de texto:', error);
         await msg.reply('Desculpe, ocorreu um erro ao processar sua mensagem. Por favor, tente novamente.');
     }
@@ -363,7 +360,7 @@ async function generateResponseWithText(model, userPrompt, userId) {
             Object.entries(userConfig).filter(([key]) => validConfigKeys.includes(key))
         );
 
-        console.log('Configuração filtrada:', filteredConfig);
+        logger.debug('Configuração filtrada:', filteredConfig);
 
         const result = await model.generateContent({
             contents: [{ role: "user", parts: [{ text: userPrompt }] }],
@@ -371,7 +368,6 @@ async function generateResponseWithText(model, userPrompt, userId) {
         });
 
         const responseText = result.response.text();
-        console.log('Resposta gerada:', responseText);
 
         if (!responseText) {
             throw new Error('Resposta vazia gerada pelo modelo');
@@ -379,7 +375,7 @@ async function generateResponseWithText(model, userPrompt, userId) {
 
         return responseText;
     } catch (error) {
-        console.error('Erro detalhado em generateResponseWithText:', error);
+        logger.error('Erro detalhado em generateResponseWithText:', error);
         logger.error('Erro ao gerar resposta de texto:', error);
 
         if (error.message.includes('SAFETY')) {
@@ -570,17 +566,16 @@ async function getConfig(userId) {
 async function sendLongMessage(msg, text) {
     try {
         if (!text || typeof text !== 'string' || text.trim() === '') {
-            console.log('Tentativa de enviar mensagem inválida:', text);
+            logger.error('Tentativa de enviar mensagem inválida:', text);
             text = "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente.";
         }
 
         let trimmedText = text.trim();
         trimmedText = trimmedText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n{3,}/g, '\n\n');
 
-        console.log('Enviando mensagem:', trimmedText);
+        logger.debug('Enviando mensagem:', trimmedText);
         await msg.reply(trimmedText);
     } catch (error) {
-        console.error('Erro ao enviar mensagem:', error);
         logger.error('Erro ao enviar mensagem:', error);
         await msg.reply('Desculpe, ocorreu um erro ao enviar a resposta. Por favor, tente novamente.');
     }
@@ -590,7 +585,7 @@ function resetSessionAfterInactivity(userId, inactivityPeriod = 3600000) { // 1 
     setTimeout(() => {
         // Aqui você pode adicionar qualquer lógica de reset que seja necessária
         // Por exemplo, limpar o histórico de mensagens ou redefinir configurações específicas do usuário
-        console.log(`Sessão resetada para o usuário ${userId} após inatividade`);
+        logger.info(`Sessão resetada para o usuário ${userId} após inatividade`);
     }, inactivityPeriod);
 }
 
