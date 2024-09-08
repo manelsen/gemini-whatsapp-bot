@@ -36,6 +36,9 @@ const genAI = new GoogleGenerativeAI(GOOGLE_AI_KEY);
 // Mapa para armazenar modelos com System Instructions
 const userModels = new Map();
 
+// Mapa para armazenar as últimas respostas por usuário
+const lastResponses = new Map();
+
 // Configuração padrão
 const defaultConfig = {
     temperature: 1.5,
@@ -201,7 +204,7 @@ async function handlePromptCommand(msg, args) {
             if (name) {
                 const prompt = await getSystemPrompt(userId, name);
                 if (prompt) {
-                    await msg.reply(`System Instruction "${name}":\n${prompt.text}`);
+                    await msg.reply(`System Instruction "<span class="math-inline">\{name\}"\:\\n</span>{prompt.text}`);
                 } else {
                     await msg.reply(`System Instruction "${name}" não encontrada.`);
                 }
@@ -222,7 +225,8 @@ async function handlePromptCommand(msg, args) {
             if (name) {
                 const prompt = await getSystemPrompt(userId, name);
                 if (prompt) {
-                    await setActiveSystemPrompt(userId, name);
+                    await setActiveSystemPrompt(userId, name
+                        await setActiveSystemPrompt(userId, name);
                     await msg.reply(`System Instruction "${name}" ativada para este chat.`);
                 } else {
                     await msg.reply(`System Instruction "${name}" não encontrada.`);
@@ -285,20 +289,39 @@ async function handleConfigCommand(msg, args) {
 async function handleTextMessage(msg) {
     try {
         const userId = msg.from;
-        
+
+        // Manter o histórico de mensagens
         const history = await getMessageHistory(userId);
+
+        // Adicionar a nova mensagem ao histórico
+        await updateMessageHistory(userId, msg.body, '');
+
         const model = getModelForUser(userId);
-        
-        const userPromptText = history.join('\n\n') + '\n\n' + msg.body;
-        
+
+        // Identificar a última pergunta no histórico
+        const lastQuestion = getLastQuestion(history);
+
+        // Construir o prompt com o contexto e a última pergunta
+        const userPromptText = history.join('\n\n') + '\n\n' + lastQuestion;
+
         console.log('Gerando resposta para:', userPromptText);
         const response = await generateResponseWithText(model, userPromptText, userId);
         console.log('Resposta gerada:', response);
-        
+
+        // Verificar se a resposta é similar à última resposta gerada
+        const lastResponse = lastResponses.get(userId);
+        if (lastResponse && isSimilar(response, lastResponse)) {
+            // Se a resposta for similar, gere uma nova resposta ou forneça uma mensagem alternativa
+            response = "Desculpe, parece que já respondi a essa pergunta. Tente perguntar algo diferente.";
+        }
+
+        // Atualizar a última resposta gerada
+        lastResponses.set(userId, response);
+
         if (!response || response.trim() === '') {
             response = "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente.";
         }
-        
+
         await updateMessageHistory(userId, msg.body, response);
         await sendLongMessage(msg, response);
     } catch (error) {
@@ -322,7 +345,7 @@ async function handleImageMessage(msg, imageData) {
 async function generateResponseWithText(model, userPrompt, userId) {
     try {
         const userConfig = await getConfig(userId);
-        
+
         const validConfigKeys = ['temperature', 'topK', 'topP', 'maxOutputTokens'];
         const filteredConfig = Object.fromEntries(
             Object.entries(userConfig).filter(([key]) => validConfigKeys.includes(key))
@@ -346,11 +369,11 @@ async function generateResponseWithText(model, userPrompt, userId) {
     } catch (error) {
         console.error('Erro detalhado em generateResponseWithText:', error);
         logger.error('Erro ao gerar resposta de texto:', error);
-        
+
         if (error.message.includes('SAFETY')) {
             return "Desculpe, não posso gerar uma resposta para essa solicitação devido a restrições de segurança. Por favor, tente reformular sua pergunta de uma maneira diferente.";
         }
-        
+
         return "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente ou reformule sua pergunta.";
     }
 }
@@ -376,12 +399,12 @@ async function generateResponseWithImageAndText(imageData, text) {
 function getMessageHistory(userId) {
     return new Promise((resolve, reject) => {
         messagesDb.find({ userId: userId, type: { $in: ['user', 'bot'] } })
-          .sort({ timestamp: -1 })
-          .limit(MAX_HISTORY * 2)
-          .exec((err, docs) => {
-            if (err) reject(err);
-            else resolve(docs.reverse().map(doc => doc.content));
-          });
+            .sort({ timestamp: -1 })
+            .limit(MAX_HISTORY * 2)
+            .exec((err, docs) => {
+                if (err) reject(err);
+                else resolve(docs.reverse().map(doc => doc.content));
+            });
     });
 }
 
@@ -394,17 +417,17 @@ function updateMessageHistory(userId, userMessage, botResponse) {
             if (err) reject(err);
             else {
                 messagesDb.find({ userId: userId, type: { $in: ['user', 'bot'] } })
-                  .sort({ timestamp: -1 })
-                  .skip(MAX_HISTORY * 2)
-                  .exec((err, docsToRemove) => {
-                    if (err) reject(err);
-                    else {
-                        messagesDb.remove({ _id: { $in: docsToRemove.map(doc => doc._id) } }, { multi: true }, (err) => {
-                            if (err) reject(err);
-                            else resolve();
-                        });
-                    }
-                  });
+                    .sort({ timestamp: -1 })
+                    .skip(MAX_HISTORY * 2)
+                    .exec((err, docsToRemove) => {
+                        if (err) reject(err);
+                        else {
+                            messagesDb.remove({ _id: { $in: docsToRemove.map(doc => doc._id) } }, { multi: true }, (err) => {
+                                if (err) reject(err);
+                                else resolve();
+                            });
+                        }
+                    });
             }
         });
     });
@@ -517,7 +540,7 @@ async function getConfig(userId) {
                 const validConfigKeys = ['temperature', 'topK', 'topP', 'maxOutputTokens'];
                 const userConfig = doc || {};
                 const filteredConfig = {};
-                
+
                 for (const key of validConfigKeys) {
                     if (userConfig.hasOwnProperty(key)) {
                         filteredConfig[key] = userConfig[key];
@@ -525,7 +548,7 @@ async function getConfig(userId) {
                         filteredConfig[key] = defaultConfig[key];
                     }
                 }
-                
+
                 resolve(filteredConfig);
             }
         });
@@ -538,10 +561,10 @@ async function sendLongMessage(msg, text) {
             console.log('Tentativa de enviar mensagem inválida:', text);
             text = "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente.";
         }
-        
+
         let trimmedText = text.trim();
         trimmedText = trimmedText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n{3,}/g, '\n\n');
-        
+
         console.log('Enviando mensagem:', trimmedText);
         await msg.reply(trimmedText);
     } catch (error) {
@@ -557,6 +580,22 @@ function resetSessionAfterInactivity(userId, inactivityPeriod = 3600000) { // 1 
         // Por exemplo, limpar o histórico de mensagens ou redefinir configurações específicas do usuário
         console.log(`Sessão resetada para o usuário ${userId} após inatividade`);
     }, inactivityPeriod);
+}
+
+function getLastQuestion(history) {
+    // Implemente sua lógica de identificação da última pergunta aqui
+    // Exemplo simples utilizando ponto de interrogação:
+    for (let i = history.length - 1; i >= 0; i--) {
+        if (history[i].includes('?')) {
+            return history[i];
+        }
+    }
+    return history[history.length - 1]; // Se não encontrar pergunta, retorna a última mensagem
+}
+
+function isSimilar(text1, text2) {
+    // Implemente sua lógica de comparação de similaridade aqui
+    // Você pode usar algoritmos como Levenshtein distance, cosine similarity, etc.
 }
 
 client.initialize();
