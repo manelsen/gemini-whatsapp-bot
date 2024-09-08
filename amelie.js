@@ -63,7 +63,7 @@ function createModelWithSystemInstruction(systemInstruction) {
               },
               {
                 category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                threshold: "BLOCK_NONE,
+                threshold: "BLOCK_NONE",
               },
               {
                 category: "HARM_CATEGORY_DANGEROUS_CONTENT",
