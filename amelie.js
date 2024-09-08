@@ -1,16 +1,15 @@
 const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
+const { GoogleGenerativeAI, GoogleAIFileManager } = require("@google/generative-ai");
 const dotenv = require('dotenv');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 const winston = require('winston');
 const Datastore = require('nedb');
-const fs = require('fs');
-const mime = require('mime-types');
+const fs = require('fs').promises;
 
 dotenv.config();
 
 // Configuração de variáveis de ambiente
-const GOOGLE_AI_KEY = process.env.GOOGLE_AI_KEY;
+const API_KEY = process.env.API_KEY;
 const MAX_HISTORY = parseInt(process.env.MAX_HISTORY || '500');
 const BOT_NAME = process.env.BOT_NAME || 'Amelie';
 
@@ -19,8 +18,7 @@ const logger = winston.createLogger({
     level: 'debug',
     format: winston.format.combine(
         winston.format.timestamp(),
-        winston.format.printf(({ timestamp, level, message,  
- ...rest }) => {
+        winston.format.printf(({ timestamp, level, message, ...rest }) => {
             const extraData = Object.keys(rest).length ? JSON.stringify(rest, null, 2) : '';
             return `${timestamp} [${level}]: ${message} ${extraData}`;
         })
@@ -36,9 +34,12 @@ const messagesDb = new Datastore({ filename: 'messages.db', autoload: true });
 const promptsDb = new Datastore({ filename: 'prompts.db', autoload: true });
 const configDb = new Datastore({ filename: 'config.db', autoload: true });
 
-// Configuração da IA do Google
-const genAI = new GoogleGenerativeAI(GOOGLE_AI_KEY);
-const audioModel = genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
+// Inicialização do GoogleGenerativeAI e FileManager
+const genAI = new GoogleGenerativeAI(API_KEY);
+const fileManager = new GoogleAIFileManager(API_KEY);
+
+// Inicialização do modelo Gemini
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 // Mapa para armazenar modelos com System Instructions
 const userModels = new Map();
@@ -53,60 +54,6 @@ const defaultConfig = {
     topP: 0.95,
     maxOutputTokens: 1024,
 };
-
-// Função para criar um novo modelo com System Instruction
-function createModelWithSystemInstruction(systemInstruction) {
-    return genAI.getGenerativeModel({
-        model: "gemini-1.5-flash",
-        generationConfig: defaultConfig,
-        safetySettings: [
-            {
-                category: "HARM_CATEGORY_HARASSMENT",
-                threshold: "BLOCK_NONE",
-            },
-            {
-                category: "HARM_CATEGORY_HATE_SPEECH",
-                threshold: "BLOCK_NONE",
-            },
-            {
-                category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                threshold: "BLOCK_NONE",
-            },
-            {
-                category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-                threshold: "BLOCK_NONE",
-            },
-        ],
-        systemInstruction: systemInstruction,
-    });
-}
-
-// Modelo padrão sem System Instruction
-let defaultModel = createModelWithSystemInstruction("");
-
-// Funções para converter áudio e gerar texto
-function convertAudioToBase64(path) {
-  try {
-    return {
-      inlineData: {
-        data: Buffer.from(fs.readFileSync(path)).toString("base64"),
-        mimeType: mime.lookup(path),
-      },
-    };
-  } catch (error) {
-    console.log(error);
-  }
-}
-
-async function generateTextFromAudio(audio) {
-    const result = await audioModel.generateContent([
-      "Este é um audio em formato Base64. Transcreva, identificando os interlocutores e inserindo timestamps",
-      audio,
-    ]);
-    const response = await result.response;
-    const text = response.text();
-    return text;
-  }
 
 // Configuração do cliente WhatsApp
 const client = new Client({
@@ -143,16 +90,13 @@ client.on('message_create', async (msg) => {
             await handleCommand(msg, chatId);
         } else if (msg.hasMedia) {
             const attachmentData = await msg.downloadMedia();
-            if (attachmentData.mimetype.startsWith('audio/')) {
-                await handleAudioMessage(msg, attachmentData); 
+            if (attachmentData.mimetype === 'audio/ogg; codecs=opus') {
+                await handleAudioMessage(msg, attachmentData, chatId);
             } else if (attachmentData.mimetype.startsWith('image/')) {
                 await handleImageMessage(msg, attachmentData, chatId);
             } else {
-                await msg.reply('Desculpe, no momento só posso processar imagens e áudios.');
+                await msg.reply('Desculpe, no momento só posso processar áudios nativos do WhatsApp e imagens.');
             }
-        } else if (msg.type === 'ptt') { 
-            const audioData = await msg.downloadMedia();
-            await handleAudioMessage(msg, audioData);
         } else {
             await handleTextMessage(msg);
         }
@@ -163,18 +107,6 @@ client.on('message_create', async (msg) => {
         await msg.reply('Desculpe, ocorreu um erro inesperado. Por favor, tente novamente mais tarde.');
     }
 });
-
-// Função handleAudioMessage modificada
-async function handleAudioMessage(msg, audioData) {
-    try {
-        const audioBase64 = audioData.data; 
-        const transcription = await generateTextFromAudio(audioBase64);
-        await msg.reply(`Transcrição: ${transcription}`);
-    } catch (error) {
-        logger.error(`Erro ao transcrever áudio: ${error.message}`, { error });
-        await msg.reply('Desculpe, não foi possível transcrever o áudio. Por favor, tente novamente.');
-    }
-}
 
 async function shouldRespondInGroup(msg, chat) {
     const mentions = await msg.getMentions();
@@ -266,10 +198,72 @@ async function handleTextMessage(msg) {
     }
 }
 
+async function handleAudioMessage(msg, audioData, chatId) {
+    try {
+        let audioFile;
+        const isLargeFile = audioData.data.length > 20 * 1024 * 1024; // 20MB
+
+        if (isLargeFile) {
+            // Salvar temporariamente e fazer upload para arquivos grandes
+            const tempFilePath = `./temp_audio_${chatId}.ogg`;
+            await fs.writeFile(tempFilePath, audioData.data);
+            audioFile = await uploadAudioFile(tempFilePath, 'audio/ogg');
+            await fs.unlink(tempFilePath); // Remover arquivo temporário
+        }
+
+        const prompt = "Por favor, transcreva o áudio e depois resuma o conteúdo em português.";
+
+        let result;
+        if (isLargeFile) {
+            result = await model.generateContent([
+                {
+                    fileData: {
+                        mimeType: audioFile.file.mimeType,
+                        fileUri: audioFile.file.uri
+                    }
+                },
+                { text: prompt },
+            ]);
+        } else {
+            // Uso direto para arquivos pequenos
+            result = await model.generateContent([
+                {
+                    inlineData: {
+                        mimeType: 'audio/ogg',
+                        data: audioData.data.toString('base64')
+                    }
+                },
+                { text: prompt },
+            ]);
+        }
+
+        const response = result.response.text();
+        await sendLongMessage(msg, response);
+
+        if (isLargeFile) {
+            // Deletar o arquivo após o uso
+            await fileManager.deleteFile(audioFile.name);
+        }
+
+    } catch (error) {
+        logger.error(`Erro ao processar mensagem de áudio: ${error.message}`, { error });
+        await msg.reply('Desculpe, ocorreu um erro ao processar o áudio. Por favor, tente novamente.');
+    }
+}
+
 async function handleImageMessage(msg, imageData, chatId) {
     try {
         const caption = msg.body || "O que há nesta imagem?";
-        const response = await generateResponseWithImageAndText(imageData.data, caption);
+        const result = await model.generateContent([
+            {
+                inlineData: {
+                    mimeType: imageData.mimetype,
+                    data: imageData.data.toString('base64')
+                }
+            },
+            { text: caption },
+        ]);
+        const response = result.response.text();
         await sendLongMessage(msg, response);
     } catch (error) {
         logger.error(`Erro ao processar imagem: ${error.message}`, { error });
@@ -311,22 +305,9 @@ async function generateResponseWithText(model, userPrompt, chatId) {
     }
 }
 
-async function generateResponseWithImageAndText(imageData, text) {
-    try {
-        const imageParts = [
-            {
-                inlineData: {
-                    data: imageData.toString('base64'),
-                    mimeType: 'image/jpeg'
-                }
-            }
-        ];
-        const result = await defaultModel.generateContent([imageParts[0], text]);
-        return result.response.text();
-    } catch (error) {
-        logger.error(`Erro ao gerar resposta de imagem: ${error.message}`, { error });
-        throw new Error("Falha ao processar a imagem");
-    }
+// Funções auxiliares
+async function uploadAudioFile(filePath, mimeType) {
+    return await fileManager.uploadFile(filePath, { mimeType });
 }
 
 function getMessageHistory(chatId) {
@@ -506,7 +487,29 @@ function setActiveSystemPrompt(chatId, promptName) {
     return new Promise((resolve, reject) => {
         getSystemPrompt(chatId, promptName).then(prompt => {
             if (prompt) {
-                const model = createModelWithSystemInstruction(prompt.text);
+                const model = genAI.getGenerativeModel({
+                    model: "gemini-1.5-flash",
+                    generationConfig: defaultConfig,
+                    safetySettings: [
+                        {
+                            category: "HARM_CATEGORY_HARASSMENT",
+                            threshold: "BLOCK_NONE",
+                        },
+                        {
+                            category: "HARM_CATEGORY_HATE_SPEECH",
+                            threshold: "BLOCK_NONE",
+                        },
+                        {
+                            category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                            threshold: "BLOCK_NONE",
+                        },
+                        {
+                            category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+                            threshold: "BLOCK_NONE",
+                        },
+                    ],
+                    systemInstruction: prompt.text,
+                });
                 userModels.set(chatId, model);
                 messagesDb.update(
                     { chatId, type: 'activePrompt' },
@@ -534,21 +537,8 @@ function clearActiveSystemPrompt(chatId) {
     });
 }
 
-function getActiveSystemPrompt(chatId) {
-    return new Promise((resolve, reject) => {
-        messagesDb.findOne({ chatId, type: 'activePrompt' }, (err, doc) => {
-            if (err) reject(err);
-            else if (doc) {
-                getSystemPrompt(chatId, doc.promptName).then(resolve).catch(reject);
-            } else {
-                resolve(null);
-            }
-        });
-    });
-}
-
 function getModelForUser(chatId) {
-    return userModels.get(chatId) || defaultModel;
+    return userModels.get(chatId) || model;
 }
 
 function setConfig(chatId, param, value) {
