@@ -98,7 +98,7 @@ function convertAudioToBase64(path) {
 }
 
 async function generateTextFromAudio(audio) {
-  const model = googleAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
   const result = await model.generateContent([
     "What is happening in the audio?",
     audio,
