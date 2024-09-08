@@ -243,11 +243,6 @@ async function handleTextMessage(msg) {
 
         let response = '';
         
-        if (!session.introductionGiven) {
-            response += "Olá! 😊 Sou a Dra. Amelie, uma androide programada para oferecer apoio e suporte a pessoas neurodivergentes. Estou aqui para te ouvir, te ajudar e te dar um abraço virtual se precisar. 🤗\n\n";
-            session.introductionGiven = true;
-        }
-
         const history = await getMessageHistory(userId);
         const activePrompt = await getActiveSystemPrompt(userId);
         
