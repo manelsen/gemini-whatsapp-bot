@@ -77,6 +77,7 @@ client.on('ready', () => {
     logger.info('Cliente WhatsApp pronto');
 });
 
+// Modificar o evento message_create para incluir logs e melhorar a detecção de comandos
 client.on('message_create', async (msg) => {
     try {
         if (msg.fromMe) return;
@@ -84,12 +85,15 @@ client.on('message_create', async (msg) => {
         const chat = await msg.getChat();
         await chat.sendSeen();
 
+        console.log('Mensagem recebida:', msg.body); // Log para debug
+
         if (chat.isGroup) {
             const shouldRespond = await shouldRespondInGroup(msg, chat);
             if (!shouldRespond) return;
         }
 
         if (msg.body.startsWith('!')) {
+            console.log('Comando detectado:', msg.body); // Log para debug
             await handleCommand(msg);
         } else if (msg.hasMedia) {
             const attachmentData = await msg.downloadMedia();
@@ -105,6 +109,7 @@ client.on('message_create', async (msg) => {
         // Resetar a sessão após processar a mensagem
         resetSessionAfterInactivity(msg.from);
     } catch (error) {
+        console.error('Erro ao processar mensagem:', error);
         logger.error('Erro ao processar mensagem:', error);
         await msg.reply('Desculpe, ocorreu um erro inesperado. Por favor, tente novamente mais tarde.');
     }
@@ -125,35 +130,56 @@ async function shouldRespondInGroup(msg, chat) {
     return isBotMentioned || isReplyToBot || isBotNameMentioned;
 }
 
+// Modificar a função handleCommand para incluir mais logs e tratamento de erros
 async function handleCommand(msg) {
     const [command, ...args] = msg.body.slice(1).split(' ');
-    switch (command.toLowerCase()) {
-        case 'reset':
-            await resetHistory(msg.from);
-            await msg.reply('🤖 Histórico resetado para este chat');
-            break;
-        case 'help':
-            await msg.reply(
-                'Comandos disponíveis:\n' +
-                '!reset - Limpa o histórico de conversa\n' +
-                '!prompt set <nome> <texto> - Define uma nova System Instruction\n' +
-                '!prompt get <nome> - Mostra uma System Instruction existente\n' +
-                '!prompt list - Lista todas as System Instructions\n' +
-                '!prompt use <nome> - Usa uma System Instruction específica\n' +
-                '!prompt clear - Remove a System Instruction ativa\n' +
-                '!config set <param> <valor> - Define um parâmetro de configuração\n' +
-                '!config get [param] - Mostra a configuração atual\n' +
-                '!help - Mostra esta mensagem de ajuda'
-            );
-            break;
-        case 'prompt':
-            await handlePromptCommand(msg, args);
-            break;
-        case 'config':
-            await handleConfigCommand(msg, args);
-            break;
-        default:
-            await msg.reply('Comando desconhecido. Use !help para ver os comandos disponíveis.');
+    console.log('Comando:', command, 'Argumentos:', args); // Log para debug
+
+    try {
+        switch (command.toLowerCase()) {
+            case 'reset':
+                await resetHistory(msg.from);
+                await msg.reply('🤖 Histórico resetado para este chat');
+                break;
+            case 'help':
+                await msg.reply(
+                    'Comandos disponíveis:\n' +
+                    '!reset - Limpa o histórico de conversa\n' +
+                    '!prompt set <nome> <texto> - Define uma nova System Instruction\n' +
+                    '!prompt get <nome> - Mostra uma System Instruction existente\n' +
+                    '!prompt list - Lista todas as System Instructions\n' +
+                    '!prompt use <nome> - Usa uma System Instruction específica\n' +
+                    '!prompt clear - Remove a System Instruction ativa\n' +
+                    '!config set <param> <valor> - Define um parâmetro de configuração\n' +
+                    '!config get [param] - Mostra a configuração atual\n' +
+                    '!help - Mostra esta mensagem de ajuda'
+                );
+                break;
+            case 'prompt':
+                await handlePromptCommand(msg, args);
+                break;
+            case 'config':
+                await handleConfigCommand(msg, args);
+                break;
+            case 'test':
+                await testCommand(msg);
+                break;
+            default:
+                await msg.reply('Comando desconhecido. Use !help para ver os comandos disponíveis.');
+        }
+    } catch (error) {
+        console.error('Erro ao executar comando:', error);
+        logger.error('Erro ao executar comando:', error);
+        await msg.reply('Desculpe, ocorreu um erro ao executar o comando. Por favor, tente novamente.');
+    }
+}
+
+async function testCommand(msg) {
+    try {
+        await msg.reply('Comando de teste executado com sucesso!');
+    } catch (error) {
+        console.error('Erro no comando de teste:', error);
+        await msg.reply('Erro ao executar o comando de teste.');
     }
 }
 
