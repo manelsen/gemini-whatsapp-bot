@@ -91,7 +91,9 @@ client.on('message_create', async (msg) => {
             await handleCommand(msg, chatId);
         } else if (msg.hasMedia) {
             const attachmentData = await msg.downloadMedia();
-            if (attachmentData.mimetype === 'audio/ogg; codecs=opus' || attachmentData.mimetype.startsWith('audio/')) {
+            if (attachmentData.mimetype === 'audio/ogg; codecs=opus' || 
+                attachmentData.mimetype === 'audio/mp3' || 
+                attachmentData.mimetype.startsWith('audio/')) {
                 await handleAudioMessage(msg, attachmentData, chatId);
             } else if (attachmentData.mimetype.startsWith('image/')) {
                 await handleImageMessage(msg, attachmentData, chatId);
@@ -200,19 +202,25 @@ async function handleTextMessage(msg) {
 async function handleAudioMessage(msg, audioData, chatId) {
     try {
         const isLargeFile = audioData.data.length > 20 * 1024 * 1024; // 20MB
-        let audioFile;
+        let audioContent;
 
         if (isLargeFile) {
             // Para arquivos grandes, use o File API
-            const tempFilePath = path.join(__dirname, `temp_audio_${chatId}.ogg`);
+            const tempFilePath = path.join(__dirname, `temp_audio_${chatId}${path.extname(audioData.filename)}`);
             await fs.writeFile(tempFilePath, audioData.data);
-            audioFile = await fileManager.uploadFile(tempFilePath, {
+            const uploadedFile = await fileManager.uploadFile(tempFilePath, {
                 mimeType: audioData.mimetype,
             });
+            audioContent = {
+                fileData: {
+                    mimeType: uploadedFile.file.mimeType,
+                    fileUri: uploadedFile.file.uri
+                }
+            };
             await fs.unlink(tempFilePath); // Remover arquivo temporário
         } else {
             // Para arquivos pequenos, use inline data
-            audioFile = {
+            audioContent = {
                 inlineData: {
                     data: audioData.data.toString('base64'),
                     mimeType: audioData.mimetype
@@ -222,7 +230,7 @@ async function handleAudioMessage(msg, audioData, chatId) {
 
         // Gerar conteúdo usando o modelo
         const result = await model.generateContent([
-            audioFile,
+            audioContent,
             { text: "Por favor, transcreva o áudio e depois resuma o conteúdo em português." }
         ]);
 
