@@ -37,8 +37,8 @@ const imageModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 // Configuração padrão
 const defaultConfig = {
-    temperature: 0.7,
-    topK: 40,
+    temperature: 0.6,
+    topK: 100,
     topP: 0.95,
     maxOutputTokens: 1024,
 };
