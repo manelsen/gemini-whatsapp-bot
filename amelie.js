@@ -4,6 +4,8 @@ const dotenv = require('dotenv');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const winston = require('winston');
 const Datastore = require('nedb');
+const fs = require('fs');
+const mime = require('mime-types');
 
 dotenv.config();
 
@@ -17,7 +19,8 @@ const logger = winston.createLogger({
     level: 'debug',
     format: winston.format.combine(
         winston.format.timestamp(),
-        winston.format.printf(({ timestamp, level, message, ...rest }) => {
+        winston.format.printf(({ timestamp, level, message,  
+ ...rest }) => {
             const extraData = Object.keys(rest).length ? JSON.stringify(rest, null, 2) : '';
             return `${timestamp} [${level}]: ${message} ${extraData}`;
         })
@@ -80,6 +83,31 @@ function createModelWithSystemInstruction(systemInstruction) {
 // Modelo padrão sem System Instruction
 let defaultModel = createModelWithSystemInstruction("");
 
+// Funções para converter áudio e gerar texto
+function convertAudioToBase64(path) {
+  try {
+    return {
+      inlineData: {
+        data: Buffer.from(fs.readFileSync(path)).toString("base64"),
+        mimeType: mime.lookup(path),
+      },
+    };
+  } catch (error) {
+    console.log(error);
+  }
+}
+
+async function generateTextFromAudio(audio) {
+  const model = googleAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
+  const result = await model.generateContent([
+    "What is happening in the audio?",
+    audio,
+  ]);
+  const response = await result.response;
+  const text = response.text();
+  return text;
+}
+
 // Configuração do cliente WhatsApp
 const client = new Client({
     authStrategy: new LocalAuth()
@@ -115,11 +143,16 @@ client.on('message_create', async (msg) => {
             await handleCommand(msg, chatId);
         } else if (msg.hasMedia) {
             const attachmentData = await msg.downloadMedia();
-            if (attachmentData.mimetype.startsWith('image/')) {
+            if (attachmentData.mimetype.startsWith('audio/')) {
+                await handleAudioMessage(msg, attachmentData); 
+            } else if (attachmentData.mimetype.startsWith('image/')) {
                 await handleImageMessage(msg, attachmentData, chatId);
             } else {
-                await msg.reply('Desculpe, no momento só posso processar imagens.');
+                await msg.reply('Desculpe, no momento só posso processar imagens e áudios.');
             }
+        } else if (msg.type === 'ptt') { 
+            const audioData = await msg.downloadMedia();
+            await handleAudioMessage(msg, audioData);
         } else {
             await handleTextMessage(msg);
         }
@@ -130,6 +163,18 @@ client.on('message_create', async (msg) => {
         await msg.reply('Desculpe, ocorreu um erro inesperado. Por favor, tente novamente mais tarde.');
     }
 });
+
+// Função handleAudioMessage modificada
+async function handleAudioMessage(msg, audioData) {
+    try {
+        const audioBase64 = audioData.data; 
+        const transcription = await generateTextFromAudio(audioBase64);
+        await msg.reply(`Transcrição: ${transcription}`);
+    } catch (error) {
+        logger.error(`Erro ao transcrever áudio: ${error.message}`, { error });
+        await msg.reply('Desculpe, não foi possível transcrever o áudio. Por favor, tente novamente.');
+    }
+}
 
 async function shouldRespondInGroup(msg, chat) {
     const mentions = await msg.getMentions();
