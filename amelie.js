@@ -14,8 +14,6 @@ const GOOGLE_AI_KEY = process.env.GOOGLE_AI_KEY;
 const MAX_HISTORY = parseInt(process.env.MAX_HISTORY || '500');
 const BOT_NAME = process.env.BOT_NAME || 'Amelie';
 
-const audioModel = genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
-
 // Configuração do logger
 const logger = winston.createLogger({
     level: 'debug',
@@ -40,6 +38,7 @@ const configDb = new Datastore({ filename: 'config.db', autoload: true });
 
 // Configuração da IA do Google
 const genAI = new GoogleGenerativeAI(GOOGLE_AI_KEY);
+const audioModel = genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
 
 // Mapa para armazenar modelos com System Instructions
 const userModels = new Map();
