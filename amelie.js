@@ -256,20 +256,20 @@ async function handleTextMessage(msg) {
         
         console.log('Gerando resposta para:', userPromptText);
         const specificResponse = await generateResponseWithText(systemPromptText, userPromptText, userId);
-        console.log('Resposta gerada:', specificResponse);
+        console.log('Resposta específica gerada:', specificResponse);
         
-        if (specificResponse) {
-            response += specificResponse;
-        } else {
-            response += "Desculpe, não consegui gerar uma resposta. Pode tentar reformular sua pergunta?";
-        }
+        response += specificResponse;
         
         console.log('Resposta final:', response);
+        
+        if (!response || response.trim() === '') {
+            response = "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente.";
+        }
         
         await updateMessageHistory(userId, msg.body, response);
         await sendLongMessage(msg, response);
     } catch (error) {
-        console.error('Erro detalhado:', error);
+        console.error('Erro detalhado em handleTextMessage:', error);
         logger.error('Erro ao processar mensagem de texto:', error);
         await msg.reply('Desculpe, ocorreu um erro ao processar sua mensagem. Por favor, tente novamente.');
     }
@@ -290,11 +290,12 @@ async function generateResponseWithText(systemPrompt, userPrompt, userId) {
     try {
         const userConfig = await getConfig(userId);
         
-        // Filtra apenas as configurações válidas
         const validConfigKeys = ['temperature', 'topK', 'topP', 'maxOutputTokens'];
         const filteredConfig = Object.fromEntries(
             Object.entries(userConfig).filter(([key]) => validConfigKeys.includes(key))
         );
+
+        console.log('Configuração filtrada:', filteredConfig);
 
         const result = await textModel.generateContent({
             contents: [
@@ -304,12 +305,24 @@ async function generateResponseWithText(systemPrompt, userPrompt, userId) {
             ],
             generationConfig: filteredConfig,
         });
+
+        const responseText = result.response.text();
+        console.log('Resposta gerada:', responseText);
+
+        if (!responseText) {
+            throw new Error('Resposta vazia gerada pelo modelo');
+        }
+
+        return responseText;
     } catch (error) {
+        console.error('Erro detalhado em generateResponseWithText:', error);
         logger.error('Erro ao gerar resposta de texto:', error);
+        
         if (error.message.includes('SAFETY')) {
             return "Desculpe, não posso gerar uma resposta para essa solicitação devido a restrições de segurança. Por favor, tente reformular sua pergunta de uma maneira diferente.";
         }
-        throw new Error("Falha ao gerar resposta de texto");
+        
+        return "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente ou reformule sua pergunta.";
     }
 }
 
@@ -466,9 +479,9 @@ async function getConfig(userId) {
 
 async function sendLongMessage(msg, text) {
     try {
-        if (!text || text.trim() === '') {
-            console.log('Tentativa de enviar mensagem vazia ou undefined');
-            text = "Desculpe, ocorreu um erro ao gerar a resposta.";
+        if (!text || typeof text !== 'string' || text.trim() === '') {
+            console.log('Tentativa de enviar mensagem inválida:', text);
+            text = "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente.";
         }
         
         let trimmedText = text.trim();
@@ -482,6 +495,7 @@ async function sendLongMessage(msg, text) {
         await msg.reply('Desculpe, ocorreu um erro ao enviar a resposta. Por favor, tente novamente.');
     }
 }
+
 
 
 function resetSessionAfterInactivity(userId, inactivityPeriod = 3600000) { // 1 hora
