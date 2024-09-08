@@ -100,7 +100,7 @@ function convertAudioToBase64(path) {
 
 async function generateTextFromAudio(audio) {
     const result = await audioModel.generateContent([
-      "Transcreva, identificando os interlocutores e inserindo timestamps",
+      "Este é um audio em formato Base64. Transcreva, identificando os interlocutores e inserindo timestamps",
       audio,
     ]);
     const response = await result.response;
