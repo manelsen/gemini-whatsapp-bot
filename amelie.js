@@ -293,10 +293,23 @@ async function generateResponseWithText(userPrompt, chatId) {
     try {
         const userConfig = await getConfig(chatId);
 
+        // Remove os campos inválidos da configuração
+        const validConfig = {
+            temperature: userConfig.temperature,
+            topK: userConfig.topK,
+            topP: userConfig.topP,
+            maxOutputTokens: userConfig.maxOutputTokens
+        };
+
+        if (userConfig.systemInstructions) {
+            validConfig.systemInstructions = userConfig.systemInstructions; 
+        }
+
         const result = await model.generateContent({
             contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-            generationConfig: userConfig,
+            generationConfig: validConfig,
         });
+
 
         const responseText = result.response.text();
 
