@@ -17,10 +17,10 @@ const logger = winston.createLogger({
     level: 'debug',
     format: winston.format.combine(
         winston.format.timestamp(),
-        winston.format.printf(info  => {
-                       return `${info.timestamp} [${info.level}]: ${info.message} ${JSON.stringify(info.data || '')}`;
-                   })
-               ),
+        winston.format.printf(info => {
+            return `${info.timestamp} [${info.level}]: ${info.message} ${JSON.stringify(info.data || '')}`;
+        })
+    ),
     transports: [
         new winston.transports.Console(),
         new winston.transports.File({ filename: 'bot.log' })
@@ -38,7 +38,7 @@ const genAI = new GoogleGenerativeAI(GOOGLE_AI_KEY);
 // Mapa para armazenar modelos com System Instructions
 const userModels = new Map();
 
-// Mapa para armazenar as últimas respostas por usuário
+// Mapa para armazenar as últimas respostas por chat
 const lastResponses = new Map();
 
 // Configuração padrão
@@ -58,20 +58,19 @@ function createModelWithSystemInstruction(systemInstruction) {
             {
                 category: "HARM_CATEGORY_HARASSMENT",
                 threshold: "BLOCK_NONE",
-              },
-              {
+            },
+            {
                 category: "HARM_CATEGORY_HATE_SPEECH",
                 threshold: "BLOCK_NONE",
-              },
-              {
+            },
+            {
                 category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
                 threshold: "BLOCK_NONE",
-              },
-              {
+            },
+            {
                 category: "HARM_CATEGORY_DANGEROUS_CONTENT",
                 threshold: "BLOCK_NONE",
-              },
-            // Adicione outras configurações de segurança conforme necessário
+            },
         ],
         systemInstruction: systemInstruction,
     });
@@ -94,7 +93,6 @@ client.on('ready', () => {
     logger.info('Cliente WhatsApp pronto');
 });
 
-// Modificar o evento message_create para incluir logs e melhorar a detecção de comandos
 client.on('message_create', async (msg) => {
     try {
         if (msg.fromMe) return;
@@ -102,7 +100,9 @@ client.on('message_create', async (msg) => {
         const chat = await msg.getChat();
         await chat.sendSeen();
 
-        logger.info(`Mensagem recebida: ${msg.body}`); // Log para debug
+        logger.info(`Mensagem recebida: ${msg.body}`);
+
+        const chatId = chat.id._serialized;
 
         if (chat.isGroup) {
             const shouldRespond = await shouldRespondInGroup(msg, chat);
@@ -110,12 +110,12 @@ client.on('message_create', async (msg) => {
         }
 
         if (msg.body.startsWith('!')) {
-            logger.info(`Comando detectado: ${msg.body}`); // Log para debug
-            await handleCommand(msg);
+            logger.info(`Comando detectado: ${msg.body}`);
+            await handleCommand(msg, chatId);
         } else if (msg.hasMedia) {
             const attachmentData = await msg.downloadMedia();
             if (attachmentData.mimetype.startsWith('image/')) {
-                await handleImageMessage(msg, attachmentData);
+                await handleImageMessage(msg, attachmentData, chatId);
             } else {
                 await msg.reply('Desculpe, no momento só posso processar imagens.');
             }
@@ -123,8 +123,7 @@ client.on('message_create', async (msg) => {
             await handleTextMessage(msg);
         }
 
-        // Resetar a sessão após processar a mensagem
-        resetSessionAfterInactivity(msg.from);
+        resetSessionAfterInactivity(chatId);
     } catch (error) {
         logger.error(`Erro ao processar mensagem: ${error}`);
         await msg.reply('Desculpe, ocorreu um erro inesperado. Por favor, tente novamente mais tarde.');
@@ -146,15 +145,14 @@ async function shouldRespondInGroup(msg, chat) {
     return isBotMentioned || isReplyToBot || isBotNameMentioned;
 }
 
-// Modificar a função handleCommand para incluir mais logs e tratamento de erros
-async function handleCommand(msg) {
+async function handleCommand(msg, chatId) {
     const [command, ...args] = msg.body.slice(1).split(' ');
-    logger.info(`Comando: ${command}, Argumentos: ${args}`); // Log para debug
+    logger.info(`Comando: ${command}, Argumentos: ${args}`);
 
     try {
         switch (command.toLowerCase()) {
             case 'reset':
-                await resetHistory(msg.from);
+                await resetHistory(chatId);
                 await msg.reply('🤖 Histórico resetado para este chat');
                 break;
             case 'help':
@@ -172,13 +170,10 @@ async function handleCommand(msg) {
                 );
                 break;
             case 'prompt':
-                await handlePromptCommand(msg, args);
+                await handlePromptCommand(msg, args, chatId);
                 break;
             case 'config':
-                await handleConfigCommand(msg, args);
-                break;
-            case 'test':
-                await testCommand(msg);
+                await handleConfigCommand(msg, args, chatId);
                 break;
             default:
                 await msg.reply('Comando desconhecido. Use !help para ver os comandos disponíveis.');
@@ -189,152 +184,35 @@ async function handleCommand(msg) {
     }
 }
 
-async function testCommand(msg) {
-    try {
-        await msg.reply('Comando de teste executado com sucesso!');
-    } catch (error) {
-        logger.error(`Erro no comando de teste: ${error}`);
-        await msg.reply('Erro ao executar o comando de teste.');
-    }
-}
-
-async function handlePromptCommand(msg, args) {
-    const [subcommand, name, ...rest] = args;
-    const userId = msg.from;
-
-    switch (subcommand) {
-        case 'set':
-            if (name && rest.length > 0) {
-                const promptText = rest.join(' ');
-                await setSystemPrompt(userId, name, promptText);
-                await msg.reply(`System Instruction "${name}" definida com sucesso.`);
-            } else {
-                await msg.reply('Uso correto: !prompt set <nome> <texto>');
-            }
-            break;
-        case 'get':
-            if (name) {
-                const prompt = await getSystemPrompt(userId, name);
-                if (prompt) {
-                    await msg.reply(`System Instruction "<span class="math-inline">\{name\}"\:\\n</span>{prompt.text}`);
-                } else {
-                    await msg.reply(`System Instruction "${name}" não encontrada.`);
-                }
-            } else {
-                await msg.reply('Uso correto: !prompt get <nome>');
-            }
-            break;
-        case 'list':
-            const prompts = await listSystemPrompts(userId);
-            if (prompts.length > 0) {
-                const promptList = prompts.map(p => p.name).join(', ');
-                await msg.reply(`System Instructions disponíveis: ${promptList}`);
-            } else {
-                await msg.reply('Nenhuma System Instruction definida.');
-            }
-            break;
-        case 'use':
-            if (name) {
-                const prompt = await getSystemPrompt(userId, name);
-                if (prompt) {
-                    await setActiveSystemPrompt(userId, name);
-                    await msg.reply(`System Instruction "${name}" ativada para este chat.`);
-                } else {
-                    await msg.reply(`System Instruction "${name}" não encontrada.`);
-                }
-            } else {
-                await msg.reply('Uso correto: !prompt use <nome>');
-            }
-            break;
-        case 'clear':
-            await clearActiveSystemPrompt(userId);
-            await msg.reply('System Instruction removida. Usando o modelo padrão.');
-            break;
-        default:
-            await msg.reply('Subcomando de prompt desconhecido. Use !help para ver os comandos disponíveis.');
-    }
-}
-
-async function handleConfigCommand(msg, args) {
-    const [subcommand, param, value] = args;
-    const userId = msg.from;
-
-    switch (subcommand) {
-        case 'set':
-            if (param && value) {
-                if (['temperature', 'topK', 'topP', 'maxOutputTokens'].includes(param)) {
-                    const numValue = parseFloat(value);
-                    if (!isNaN(numValue)) {
-                        await setConfig(userId, param, numValue);
-                        await msg.reply(`Parâmetro ${param} definido como ${numValue}`);
-                    } else {
-                        await msg.reply(`Valor inválido para ${param}. Use um número.`);
-                    }
-                } else {
-                    await msg.reply(`Parâmetro desconhecido: ${param}`);
-                }
-            } else {
-                await msg.reply('Uso correto: !config set <param> <valor>');
-            }
-            break;
-        case 'get':
-            const config = await getConfig(userId);
-            if (param) {
-                if (config.hasOwnProperty(param)) {
-                    await msg.reply(`${param}: ${config[param]}`);
-                } else {
-                    await msg.reply(`Parâmetro desconhecido: ${param}`);
-                }
-            } else {
-                const configString = Object.entries(config)
-                    .map(([key, value]) => `${key}: ${value}`)
-                    .join('\n');
-                await msg.reply(`Configuração atual:\n${configString}`);
-            }
-            break;
-        default:
-            await msg.reply('Subcomando de config desconhecido. Use !help para ver os comandos disponíveis.');
-    }
-}
-
 async function handleTextMessage(msg) {
     try {
-        const userId = msg.from;
+        const chatId = msg.from;
+        const sender = msg.author || msg.from;
 
-        // Adicionar a nova mensagem ao histórico
-        await updateMessageHistory(userId, msg.body, '');
+        await updateMessageHistory(chatId, sender, msg.body);
 
-        // Manter o histórico de mensagens
-        const history = await getMessageHistory(userId);
+        const history = await getMessageHistory(chatId);
 
-        // Identificar a última pergunta no histórico ANTES de adicionar a nova mensagem
-        const lastQuestion = getLastQuestion(history);
+        const model = getModelForUser(chatId);
 
-        const model = getModelForUser(userId);
-
-        // Construir o prompt com o contexto e a última pergunta
-        const userPromptText = history.join('\n\n') + '\n\n' + lastQuestion;
+        const userPromptText = history.join('\n') + `\n${sender}: ${msg.body}\n${BOT_NAME}:`;
 
         logger.info(`Gerando resposta para: ${userPromptText}`);
-        logger.info(`Pergunta recebida: ${lastQuestion}`);
-        const response = await generateResponseWithText(model, userPromptText, userId);
+        const response = await generateResponseWithText(model, userPromptText, chatId);
         logger.info(`Resposta gerada: ${response}`);
 
-        // Verificar se a resposta é similar à última resposta gerada
-        const lastResponse = lastResponses.get(userId);
+        const lastResponse = lastResponses.get(chatId);
         if (lastResponse && isSimilar(response, lastResponse)) {
-            // Se a resposta for similar, gere uma nova resposta ou forneça uma mensagem alternativa
             response = "Desculpe, parece que já respondi a essa pergunta. Tente perguntar algo diferente.";
         }
 
-        // Atualizar a última resposta gerada
-        lastResponses.set(userId, response);
+        lastResponses.set(chatId, response);
 
         if (!response || response.trim() === '') {
             response = "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente.";
         }
 
-        await updateMessageHistory(userId, msg.body, response);
+        await updateMessageHistory(chatId, BOT_NAME, response, true);
         await sendLongMessage(msg, response);
     } catch (error) {
         logger.error(`Erro ao processar mensagem de texto: ${error}`);
@@ -342,7 +220,7 @@ async function handleTextMessage(msg) {
     }
 }
 
-async function handleImageMessage(msg, imageData) {
+async function handleImageMessage(msg, imageData, chatId) {
     try {
         const caption = msg.body || "O que há nesta imagem?";
         const response = await generateResponseWithImageAndText(imageData.data, caption);
@@ -353,9 +231,9 @@ async function handleImageMessage(msg, imageData) {
     }
 }
 
-async function generateResponseWithText(model, userPrompt, userId) {
+async function generateResponseWithText(model, userPrompt, chatId) {
     try {
-        const userConfig = await getConfig(userId);
+        const userConfig = await getConfig(chatId);
 
         const validConfigKeys = ['temperature', 'topK', 'topP', 'maxOutputTokens'];
         const filteredConfig = Object.fromEntries(
@@ -406,27 +284,30 @@ async function generateResponseWithImageAndText(imageData, text) {
     }
 }
 
-function getMessageHistory(userId) {
+function getMessageHistory(chatId) {
     return new Promise((resolve, reject) => {
-        messagesDb.find({ userId: userId, type: { $in: ['user', 'bot'] } })
+        messagesDb.find({ chatId: chatId, type: { $in: ['user', 'bot'] } })
             .sort({ timestamp: -1 })
             .limit(MAX_HISTORY * 2)
             .exec((err, docs) => {
                 if (err) reject(err);
-                else resolve(docs.reverse().map(doc => doc.content));
+                else resolve(docs.reverse().map(doc => `${doc.sender}: ${doc.content}`));
             });
     });
 }
 
-function updateMessageHistory(userId, userMessage, botResponse) {
+function updateMessageHistory(chatId, sender, message, isBot = false) {
     return new Promise((resolve, reject) => {
-        messagesDb.insert([
-            { userId, content: userMessage, timestamp: Date.now(), type: 'user' },
-            { userId, content: botResponse, timestamp: Date.now(), type: 'bot' }
-        ], (err) => {
+        messagesDb.insert({
+            chatId,
+            sender,
+            content: message,
+            timestamp: Date.now(),
+            type: isBot ? 'bot' : 'user'
+        }, (err) => {
             if (err) reject(err);
             else {
-                messagesDb.find({ userId: userId, type: { $in: ['user', 'bot'] } })
+                messagesDb.find({ chatId: chatId, type: { $in: ['user', 'bot'] } })
                     .sort({ timestamp: -1 })
                     .skip(MAX_HISTORY * 2)
                     .exec((err, docsToRemove) => {
@@ -443,170 +324,262 @@ function updateMessageHistory(userId, userMessage, botResponse) {
     });
 }
 
-function resetHistory(userId) {
+function resetHistory(chatId) {
     return new Promise((resolve, reject) => {
-        messagesDb.remove({ userId: userId, type: { $in: ['user', 'bot'] } }, { multi: true }, (err) => {
+        messagesDb.remove({ chatId: chatId, type: { $in: ['user', 'bot'] } }, { multi: true }, (err) => {
             if (err) reject(err);
             else resolve();
         });
     });
 }
 
-function setSystemPrompt(userId, name, text) {
-    return new Promise((resolve, reject) => {
-        promptsDb.update({ userId, name }, { userId, name, text }, { upsert: true }, (err) => {
-            if (err) reject(err);
-            else resolve();
-        });
-    });
-}
+async function handlePromptCommand(msg, args, chatId) {
+    const [subcommand, name, ...rest] = args;
 
-function getSystemPrompt(userId, name) {
-    return new Promise((resolve, reject) => {
-        promptsDb.findOne({ userId, name }, (err, doc) => {
-            if (err) reject(err);
-            else resolve(doc);
-        });
-    });
-}
-
-function listSystemPrompts(userId) {
-    return new Promise((resolve, reject) => {
-        promptsDb.find({ userId }, (err, docs) => {
-            if (err) reject(err);
-            else resolve(docs);
-        });
-    });
-}
-
-function setActiveSystemPrompt(userId, promptName) {
-    return new Promise((resolve, reject) => {
-        getSystemPrompt(userId, promptName).then(prompt => {
-            if (prompt) {
-                const model = createModelWithSystemInstruction(prompt.text);
-                userModels.set(userId, model);
-                messagesDb.update(
-                    { userId, type: 'activePrompt' },
-                    { userId, type: 'activePrompt', promptName },
-                    { upsert: true },
-                    (err) => {
-                        if (err) reject(err);
-                        else resolve();
+    switch (subcommand) {
+        case 'set':
+            if (name && rest.length > 0) {
+                const promptText = rest.join(' ');
+                await setSystemPrompt(chatId, name, promptText);
+                await msg.reply(`System Instruction "${name}" definida com sucesso.`);
+            } else {
+                await msg.reply('Uso correto: !prompt set <nome> <texto>');
+            }
+            break;
+        case 'get':
+            if (name) {
+                const prompt = await getSystemPrompt(chatId, name);
+                if (prompt) {
+                    await msg.reply(`System Instruction "${name}":\n${prompt.text}`);
+                } else {
+                    await msg.reply(`System Instruction "${name}" não encontrada.`);
+                }
+            } else {
+                await msg.reply('Uso correto: !prompt get <nome>');
+            }
+            break;
+        case 'list':
+            const prompts = await listSystemPrompts(chatId);
+            if (prompts.length > 0) {
+                const promptList = prompts.map(p => p.name).join(', ');
+                await msg.reply(`System Instructions disponíveis: ${promptList}`);
+            } else {
+                await msg.reply('Nenhuma System Instruction definida.');
+            }
+            break;
+        case 'use':
+            if (name) {
+                const prompt = await getSystemPrompt(chatId, name);
+                if (prompt) {
+                    await setActiveSystemPrompt(chatId, name);
+                    await msg.reply(`System Instruction "${name}" ativada para este chat.`);
+                } else {
+                    await msg.reply(`System Instruction "${name}" não encontrada.`);
+                }
+            } else {
+                await msg.reply('Uso correto: !prompt use <nome>');
+            }
+            break;
+        case 'clear':
+            await clearActiveSystemPrompt(chatId);
+            await msg.reply('System Instruction removida. Usando o modelo padrão.');
+            break;
+        default:
+            await msg.reply('Subcomando de prompt desconhecido. Use !help para ver os comandos disponíveis.');
+        }
+    }
+    
+    async function handleConfigCommand(msg, args, chatId) {
+        const [subcommand, param, value] = args;
+    
+        switch (subcommand) {
+            case 'set':
+                if (param && value) {
+                    if (['temperature', 'topK', 'topP', 'maxOutputTokens'].includes(param)) {
+                        const numValue = parseFloat(value);
+                        if (!isNaN(numValue)) {
+                            await setConfig(chatId, param, numValue);
+                            await msg.reply(`Parâmetro ${param} definido como ${numValue}`);
+                        } else {
+                            await msg.reply(`Valor inválido para ${param}. Use um número.`);
+                        }
+                    } else {
+                        await msg.reply(`Parâmetro desconhecido: ${param}`);
                     }
-                );
-            } else {
-                reject(new Error('System Instruction não encontrada'));
-            }
-        }).catch(reject);
-    });
-}
-
-function clearActiveSystemPrompt(userId) {
-    return new Promise((resolve, reject) => {
-        userModels.delete(userId);
-        messagesDb.remove({ userId, type: 'activePrompt' }, {}, (err) => {
-            if (err) reject(err);
-            else resolve();
-        });
-    });
-}
-
-function getActiveSystemPrompt(userId) {
-    return new Promise((resolve, reject) => {
-        messagesDb.findOne({ userId, type: 'activePrompt' }, (err, doc) => {
-            if (err) reject(err);
-            else if (doc) {
-                getSystemPrompt(userId, doc.promptName).then(resolve).catch(reject);
-            } else {
-                resolve(null);
-            }
-        });
-    });
-}
-
-function getModelForUser(userId) {
-    return userModels.get(userId) || defaultModel;
-}
-
-function setConfig(userId, param, value) {
-    return new Promise((resolve, reject) => {
-        configDb.update(
-            { userId },
-            { $set: { [param]: value } },
-            { upsert: true },
-            (err) => {
+                } else {
+                    await msg.reply('Uso correto: !config set <param> <valor>');
+                }
+                break;
+            case 'get':
+                const config = await getConfig(chatId);
+                if (param) {
+                    if (config.hasOwnProperty(param)) {
+                        await msg.reply(`${param}: ${config[param]}`);
+                    } else {
+                        await msg.reply(`Parâmetro desconhecido: ${param}`);
+                    }
+                } else {
+                    const configString = Object.entries(config)
+                        .map(([key, value]) => `${key}: ${value}`)
+                        .join('\n');
+                    await msg.reply(`Configuração atual:\n${configString}`);
+                }
+                break;
+            default:
+                await msg.reply('Subcomando de config desconhecido. Use !help para ver os comandos disponíveis.');
+        }
+    }
+    
+    function setSystemPrompt(chatId, name, text) {
+        return new Promise((resolve, reject) => {
+            promptsDb.update({ chatId, name }, { chatId, name, text }, { upsert: true }, (err) => {
                 if (err) reject(err);
                 else resolve();
-            }
-        );
-    });
-}
-
-async function getConfig(userId) {
-    return new Promise((resolve, reject) => {
-        configDb.findOne({ userId }, (err, doc) => {
-            if (err) reject(err);
-            else {
-                const validConfigKeys = ['temperature', 'topK', 'topP', 'maxOutputTokens'];
-                const userConfig = doc || {};
-                const filteredConfig = {};
-
-                for (const key of validConfigKeys) {
-                    if (userConfig.hasOwnProperty(key)) {
-                        filteredConfig[key] = userConfig[key];
-                    } else if (defaultConfig.hasOwnProperty(key)) {
-                        filteredConfig[key] = defaultConfig[key];
-                    }
-                }
-
-                resolve(filteredConfig);
-            }
+            });
         });
-    });
-}
-
-async function sendLongMessage(msg, text) {
-    try {
-        if (!text || typeof text !== 'string' || text.trim() === '') {
-            logger.error('Tentativa de enviar mensagem inválida:', text);
-            text = "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente.";
-        }
-
-        let trimmedText = text.trim();
-        trimmedText = trimmedText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n{3,}/g, '\n\n');
-
-        logger.debug('Enviando mensagem:', trimmedText);
-        await msg.reply(trimmedText);
-    } catch (error) {
-        logger.error(`Erro ao enviar mensagem: ${error}`);
-        await msg.reply('Desculpe, ocorreu um erro ao enviar a resposta. Por favor, tente novamente.');
     }
-}
-
-function resetSessionAfterInactivity(userId, inactivityPeriod = 3600000) { // 1 hora
-    setTimeout(() => {
-        // Aqui você pode adicionar qualquer lógica de reset que seja necessária
-        // Por exemplo, limpar o histórico de mensagens ou redefinir configurações específicas do usuário
-        logger.info(`Sessão resetada para o usuário ${userId} após inatividade`);
-    }, inactivityPeriod);
-}
-
-function getLastQuestion(history) {
-    return history[history.length - 1]; // Retorna a última mensagem do usuário
-}
-
-function isSimilar(text1, text2) {
-    // Implemente sua lógica de comparação de similaridade aqui
-    // Você pode usar algoritmos como Levenshtein distance, cosine similarity, etc.
-}
-
-client.initialize();
-
-process.on('unhandledRejection', (reason, promise) => {
-    logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-process.on('uncaughtException', (error) => {
-    logger.error(`Uncaught Exception: ${error}`);
-    process.exit(1);
-});
+    
+    function getSystemPrompt(chatId, name) {
+        return new Promise((resolve, reject) => {
+            promptsDb.findOne({ chatId, name }, (err, doc) => {
+                if (err) reject(err);
+                else resolve(doc);
+            });
+        });
+    }
+    
+    function listSystemPrompts(chatId) {
+        return new Promise((resolve, reject) => {
+            promptsDb.find({ chatId }, (err, docs) => {
+                if (err) reject(err);
+                else resolve(docs);
+            });
+        });
+    }
+    
+    function setActiveSystemPrompt(chatId, promptName) {
+        return new Promise((resolve, reject) => {
+            getSystemPrompt(chatId, promptName).then(prompt => {
+                if (prompt) {
+                    const model = createModelWithSystemInstruction(prompt.text);
+                    userModels.set(chatId, model);
+                    messagesDb.update(
+                        { chatId, type: 'activePrompt' },
+                        { chatId, type: 'activePrompt', promptName },
+                        { upsert: true },
+                        (err) => {
+                            if (err) reject(err);
+                            else resolve();
+                        }
+                    );
+                } else {
+                    reject(new Error('System Instruction não encontrada'));
+                }
+            }).catch(reject);
+        });
+    }
+    
+    function clearActiveSystemPrompt(chatId) {
+        return new Promise((resolve, reject) => {
+            userModels.delete(chatId);
+            messagesDb.remove({ chatId, type: 'activePrompt' }, {}, (err) => {
+                if (err) reject(err);
+                else resolve();
+            });
+        });
+    }
+    
+    function getActiveSystemPrompt(chatId) {
+        return new Promise((resolve, reject) => {
+            messagesDb.findOne({ chatId, type: 'activePrompt' }, (err, doc) => {
+                if (err) reject(err);
+                else if (doc) {
+                    getSystemPrompt(chatId, doc.promptName).then(resolve).catch(reject);
+                } else {
+                    resolve(null);
+                }
+            });
+        });
+    }
+    
+    function getModelForUser(chatId) {
+        return userModels.get(chatId) || defaultModel;
+    }
+    
+    function setConfig(chatId, param, value) {
+        return new Promise((resolve, reject) => {
+            configDb.update(
+                { chatId },
+                { $set: { [param]: value } },
+                { upsert: true },
+                (err) => {
+                    if (err) reject(err);
+                    else resolve();
+                }
+            );
+        });
+    }
+    
+    async function getConfig(chatId) {
+        return new Promise((resolve, reject) => {
+            configDb.findOne({ chatId }, (err, doc) => {
+                if (err) reject(err);
+                else {
+                    const validConfigKeys = ['temperature', 'topK', 'topP', 'maxOutputTokens'];
+                    const userConfig = doc || {};
+                    const filteredConfig = {};
+    
+                    for (const key of validConfigKeys) {
+                        if (userConfig.hasOwnProperty(key)) {
+                            filteredConfig[key] = userConfig[key];
+                        } else if (defaultConfig.hasOwnProperty(key)) {
+                            filteredConfig[key] = defaultConfig[key];
+                        }
+                    }
+    
+                    resolve(filteredConfig);
+                }
+            });
+        });
+    }
+    
+    async function sendLongMessage(msg, text) {
+        try {
+            if (!text || typeof text !== 'string' || text.trim() === '') {
+                logger.error('Tentativa de enviar mensagem inválida:', text);
+                text = "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente.";
+            }
+    
+            let trimmedText = text.trim();
+            trimmedText = trimmedText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n{3,}/g, '\n\n');
+    
+            logger.debug('Enviando mensagem:', trimmedText);
+            await msg.reply(trimmedText);
+        } catch (error) {
+            logger.error(`Erro ao enviar mensagem: ${error}`);
+            await msg.reply('Desculpe, ocorreu um erro ao enviar a resposta. Por favor, tente novamente.');
+        }
+    }
+    
+    function resetSessionAfterInactivity(chatId, inactivityPeriod = 3600000) { // 1 hora
+        setTimeout(() => {
+            logger.info(`Sessão resetada para o chat ${chatId} após inatividade`);
+        }, inactivityPeriod);
+    }
+    
+    function isSimilar(text1, text2) {
+        // Implemente sua lógica de comparação de similaridade aqui
+        // Você pode usar algoritmos como Levenshtein distance, cosine similarity, etc.
+        return false; // Placeholder
+    }
+    
+    client.initialize();
+    
+    process.on('unhandledRejection', (reason, promise) => {
+        logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    });
+    
+    process.on('uncaughtException', (error) => {
+        logger.error(`Uncaught Exception: ${error}`);
+        process.exit(1);
+    });
