@@ -4,7 +4,6 @@ const dotenv = require('dotenv');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const winston = require('winston');
 const Datastore = require('nedb');
-import { HarmBlockThreshold, HarmCategory } from "@google/generative-ai";
 
 dotenv.config();
 
