@@ -582,14 +582,7 @@ function resetSessionAfterInactivity(userId, inactivityPeriod = 3600000) { // 1 
 }
 
 function getLastQuestion(history) {
-    // Implemente sua lógica de identificação da última pergunta aqui
-    // Exemplo simples utilizando ponto de interrogação:
-    for (let i = history.length - 1; i >= 0; i--) {
-        if (history[i].includes('?')) {
-            return history[i];
-        }
-    }
-    return history[history.length - 1]; // Se não encontrar pergunta, retorna a última mensagem
+    return history[history.length - 1]; // Retorna a última mensagem do usuário
 }
 
 function isSimilar(text1, text2) {
