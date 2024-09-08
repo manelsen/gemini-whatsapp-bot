@@ -1,6 +1,7 @@
 const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
-const { GoogleGenerativeAI, GoogleAIFileManager } = require("@google/generative-ai");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { FileManager } = require("@google/generative-ai/lib/types/file");
 const dotenv = require('dotenv');
 const winston = require('winston');
 const Datastore = require('nedb');
@@ -34,9 +35,11 @@ const messagesDb = new Datastore({ filename: 'messages.db', autoload: true });
 const promptsDb = new Datastore({ filename: 'prompts.db', autoload: true });
 const configDb = new Datastore({ filename: 'config.db', autoload: true });
 
-// Inicialização do GoogleGenerativeAI e FileManager
+// Inicialização do GoogleGenerativeAI
 const genAI = new GoogleGenerativeAI(API_KEY);
-const fileManager = new GoogleAIFileManager(API_KEY);
+
+// Inicialização do FileManager
+const fileManager = new FileManager(API_KEY);
 
 // Inicialização do modelo Gemini
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
@@ -246,7 +249,7 @@ async function handleAudioMessage(msg, audioData, chatId) {
         }
 
     } catch (error) {
-        logger.error(`Erro ao processar mensagem de áudio: ${error.message}`, { error });
+        console.error("Erro ao processar mensagem de áudio:", error);
         await msg.reply('Desculpe, ocorreu um erro ao processar o áudio. Por favor, tente novamente.');
     }
 }
@@ -307,7 +310,13 @@ async function generateResponseWithText(model, userPrompt, chatId) {
 
 // Funções auxiliares
 async function uploadAudioFile(filePath, mimeType) {
-    return await fileManager.uploadFile(filePath, { mimeType });
+    try {
+        const file = await fileManager.upload(filePath, { mimeType });
+        return file;
+    } catch (error) {
+        console.error("Erro ao fazer upload do arquivo:", error);
+        throw error;
+    }
 }
 
 function getMessageHistory(chatId) {
