@@ -14,6 +14,8 @@ const GOOGLE_AI_KEY = process.env.GOOGLE_AI_KEY;
 const MAX_HISTORY = parseInt(process.env.MAX_HISTORY || '500');
 const BOT_NAME = process.env.BOT_NAME || 'Amelie';
 
+const audioModel = genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
+
 // Configuração do logger
 const logger = winston.createLogger({
     level: 'debug',
@@ -98,15 +100,14 @@ function convertAudioToBase64(path) {
 }
 
 async function generateTextFromAudio(audio) {
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
-  const result = await model.generateContent([
-    "What is happening in the audio?",
-    audio,
-  ]);
-  const response = await result.response;
-  const text = response.text();
-  return text;
-}
+    const result = await audioModel.generateContent([
+      "Transcreva, identificando os interlocutores e inserindo timestamps",
+      audio,
+    ]);
+    const response = await result.response;
+    const text = response.text();
+    return text;
+  }
 
 // Configuração do cliente WhatsApp
 const client = new Client({
