@@ -102,7 +102,7 @@ client.on('message_create', async (msg) => {
         const chat = await msg.getChat();
         await chat.sendSeen();
 
-        logger.info('Mensagem recebida:', msg.body); // Log para debug
+        logger.info(`Mensagem recebida: ${msg.body}`); // Log para debug
 
         if (chat.isGroup) {
             const shouldRespond = await shouldRespondInGroup(msg, chat);
@@ -110,7 +110,7 @@ client.on('message_create', async (msg) => {
         }
 
         if (msg.body.startsWith('!')) {
-            logger.info('Comando detectado:', msg.body); // Log para debug
+            logger.info(`Comando detectado: ${msg.body}`); // Log para debug
             await handleCommand(msg);
         } else if (msg.hasMedia) {
             const attachmentData = await msg.downloadMedia();
@@ -126,7 +126,7 @@ client.on('message_create', async (msg) => {
         // Resetar a sessão após processar a mensagem
         resetSessionAfterInactivity(msg.from);
     } catch (error) {
-        logger.error('Erro ao processar mensagem:', error);
+        logger.error(`Erro ao processar mensagem: ${error}`);
         await msg.reply('Desculpe, ocorreu um erro inesperado. Por favor, tente novamente mais tarde.');
     }
 });
@@ -149,7 +149,7 @@ async function shouldRespondInGroup(msg, chat) {
 // Modificar a função handleCommand para incluir mais logs e tratamento de erros
 async function handleCommand(msg) {
     const [command, ...args] = msg.body.slice(1).split(' ');
-    logger.info('Comando:', command, 'Argumentos:', args); // Log para debug
+    logger.info(`Comando: ${command}, Argumentos: ${args}`); // Log para debug
 
     try {
         switch (command.toLowerCase()) {
@@ -184,7 +184,7 @@ async function handleCommand(msg) {
                 await msg.reply('Comando desconhecido. Use !help para ver os comandos disponíveis.');
         }
     } catch (error) {
-        logger.error('Erro ao executar comando:', error);
+        logger.error(`Erro ao executar comando: ${error}`;
         await msg.reply('Desculpe, ocorreu um erro ao executar o comando. Por favor, tente novamente.');
     }
 }
@@ -193,7 +193,7 @@ async function testCommand(msg) {
     try {
         await msg.reply('Comando de teste executado com sucesso!');
     } catch (error) {
-        logger.error('Erro no comando de teste:', error);
+        logger.error(`Erro no comando de teste: ${error}`);
         await msg.reply('Erro ao executar o comando de teste.');
     }
 }
@@ -315,10 +315,10 @@ async function handleTextMessage(msg) {
         // Construir o prompt com o contexto e a última pergunta
         const userPromptText = history.join('\n\n') + '\n\n' + lastQuestion;
 
-        logger.info('Gerando resposta para:', userPromptText);
-        logger.info('Pergunta recebida: ', lastQuestion)
+        logger.info(`Gerando resposta para: ${userPromptText}`);
+        logger.info(`Pergunta recebida: ${lastQuestion}`);
         const response = await generateResponseWithText(model, userPromptText, userId);
-        logger.info('Resposta gerada:', response);
+        logger.info(`Resposta gerada: ${response}`);
 
         // Verificar se a resposta é similar à última resposta gerada
         const lastResponse = lastResponses.get(userId);
@@ -337,7 +337,7 @@ async function handleTextMessage(msg) {
         await updateMessageHistory(userId, msg.body, response);
         await sendLongMessage(msg, response);
     } catch (error) {
-        logger.error('Erro ao processar mensagem de texto:', error);
+        logger.error(`Erro ao processar mensagem de texto: ${error}`);
         await msg.reply('Desculpe, ocorreu um erro ao processar sua mensagem. Por favor, tente novamente.');
     }
 }
@@ -348,7 +348,7 @@ async function handleImageMessage(msg, imageData) {
         const response = await generateResponseWithImageAndText(imageData.data, caption);
         await sendLongMessage(msg, response);
     } catch (error) {
-        logger.error('Erro ao processar imagem:', error);
+        logger.error(`Erro ao processar imagem: ${error}`);
         await msg.reply('Desculpe, não foi possível processar sua imagem. Por favor, tente novamente.');
     }
 }
@@ -362,7 +362,7 @@ async function generateResponseWithText(model, userPrompt, userId) {
             Object.entries(userConfig).filter(([key]) => validConfigKeys.includes(key))
         );
 
-        logger.debug('Configuração filtrada:', filteredConfig);
+        logger.debug(`Configuração filtrada: ${filteredConfig}`);
 
         const result = await model.generateContent({
             contents: [{ role: "user", parts: [{ text: userPrompt }] }],
@@ -377,8 +377,8 @@ async function generateResponseWithText(model, userPrompt, userId) {
 
         return responseText;
     } catch (error) {
-        logger.error('Erro detalhado em generateResponseWithText:', error);
-        logger.error('Erro ao gerar resposta de texto:', error);
+        logger.error(`Erro detalhado em generateResponseWithText: ${error}`);
+        logger.error(`Erro ao gerar resposta de texto: ${error}`);
 
         if (error.message.includes('SAFETY')) {
             return "Desculpe, não posso gerar uma resposta para essa solicitação devido a restrições de segurança. Por favor, tente reformular sua pergunta de uma maneira diferente.";
@@ -401,7 +401,7 @@ async function generateResponseWithImageAndText(imageData, text) {
         const result = await imageModel.generateContent([imageParts[0], text]);
         return result.response.text();
     } catch (error) {
-        logger.error('Erro ao gerar resposta de imagem:', error);
+        logger.error(`Erro ao gerar resposta de imagem: ${error}`);
         throw new Error("Falha ao processar a imagem");
     }
 }
@@ -578,7 +578,7 @@ async function sendLongMessage(msg, text) {
         logger.debug('Enviando mensagem:', trimmedText);
         await msg.reply(trimmedText);
     } catch (error) {
-        logger.error('Erro ao enviar mensagem:', error);
+        logger.error(`Erro ao enviar mensagem: ${error}`);
         await msg.reply('Desculpe, ocorreu um erro ao enviar a resposta. Por favor, tente novamente.');
     }
 }
@@ -607,6 +607,6 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 process.on('uncaughtException', (error) => {
-    logger.error('Uncaught Exception:', error);
+    logger.error(`Uncaught Exception: ${error}`);
     process.exit(1);
 });
