@@ -221,19 +221,20 @@ async function handleAudioMessage(msg, audioData, chatId) {
 
         logger.info(`Arquivo de áudio enviado com sucesso: ${uploadedFile.file.uri}`);
 
-        // Gerar conteúdo usando o modelo
-        const result = await model.generateContent([
-            {
-                fileData: {
-                    mimeType: uploadedFile.file.mimeType,
-                    fileUri: uploadedFile.file.uri
-                }
-            },
-            { text: "Por favor, transcreva o áudio e depois resuma o conteúdo em português." }
-        ]);
+        // Gerar conteúdo usando o modelo (com tratamento de erros)
+        try {
+            const result = await model.generateContent([
+                {
+                    fileData: {
+                        mimeType: uploadedFile.file.mimeType,
+                        fileUri: uploadedFile.file.uri
+                    }
+                },
+                { text: "Por favor, transcreva o áudio e depois resuma o conteúdo em português." }
+            ]);
 
-        const response = await result.response.text();
-        await sendLongMessage(msg, response);
+            const response = await result.response.text();
+            await sendLongMessage(msg, response);
 
         // Atualizar o histórico de mensagens
         await updateMessageHistory(chatId, msg.author || msg.from, '[Áudio]', false);
@@ -243,10 +244,22 @@ async function handleAudioMessage(msg, audioData, chatId) {
         await fs.unlink(tempFilePath);
         logger.info(`Arquivo temporário removido: ${tempFilePath}`);
 
-    } catch (error) {
-        logger.error(`Erro ao processar mensagem de áudio: ${error.message}`, { error });
-        await msg.reply('Desculpe, ocorreu um erro ao processar o áudio. Por favor, tente novamente.');
+    } catch (generateError) {
+        logger.error(`Erro ao gerar conteúdo a partir do áudio: ${generateError.message}`, { error: generateError });
+
+        if (generateError.message.includes('DEADLINE_EXCEEDED')) {
+            await msg.reply('Desculpe, o áudio é muito longo para ser processado no momento. Tente enviar um áudio mais curto ou dividi-lo em partes.');
+        } else if (generateError.message.includes('INTERNAL')) {
+            await msg.reply('Desculpe, ocorreu um erro interno ao processar o áudio. Por favor, tente novamente mais tarde.');
+        } else {
+            await msg.reply('Desculpe, ocorreu um erro ao processar o áudio. Por favor, tente novamente ou envie um áudio em um formato diferente.');
+        }
     }
+
+} catch (error) {
+    logger.error(`Erro ao processar mensagem de áudio: ${error.message}`, { error });
+    await msg.reply('Desculpe, ocorreu um erro ao processar o áudio. Por favor, tente novamente.');
+}
 }
 
 async function handleImageMessage(msg, imageData, chatId) {
