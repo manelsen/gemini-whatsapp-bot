@@ -293,7 +293,6 @@ async function generateResponseWithText(userPrompt, chatId) {
     try {
         const userConfig = await getConfig(chatId);
 
-        // Configuração válida sem systemInstructions
         const validConfig = {
             temperature: userConfig.temperature,
             topK: userConfig.topK,
@@ -301,20 +300,23 @@ async function generateResponseWithText(userPrompt, chatId) {
             maxOutputTokens: userConfig.maxOutputTokens
         };
 
-        // Inicialize o modelo
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-        // Inicie um chat
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
         const chat = model.startChat(validConfig);
 
-        // Se houver instruções do sistema, envie-as como uma mensagem separada
         if (userConfig.systemInstructions) {
-            await chat.sendMessage(userConfig.systemInstructions);
+            logger.info(`Lembrete: estas são as Instruções do Sistema: ${userConfig.systemInstructions}`)
+            const reinforcedInstructions = `
+IMPORTANT: The following are your system instructions. Always adhere to these instructions:
+
+${userConfig.systemInstructions}
+
+Remember: Always respond according to these instructions.
+`;
+            await chat.sendMessage(reinforcedInstructions);
         }
 
-        // Envie a mensagem do usuário
         const result = await chat.sendMessage(userPrompt);
-        const responseText = result.response.text();
+        let responseText = result.response.text();
 
         if (!responseText) {
             throw new Error('Resposta vazia gerada pelo modelo');
@@ -389,7 +391,8 @@ async function handlePromptCommand(msg, args, chatId) {
             if (name && rest.length > 0) {
                 const promptText = rest.join(' ');
                 await setSystemPrompt(chatId, name, promptText);
-                await msg.reply(`System Instruction "${name}" definida com sucesso.`);
+                //await clearChatOnInstructionChange(chatId);
+                await msg.reply(`System Instruction "${name}" definida com sucesso. O histórico do chat foi limpo.`);
             } else {
                 await msg.reply('Uso correto: !prompt set <nome> <texto>');
             }
@@ -479,7 +482,8 @@ async function handleConfigCommand(msg, args, chatId) {
 
 function setSystemPrompt(chatId, name, text) {
     return new Promise((resolve, reject) => {
-        promptsDb.update({ chatId, name }, { chatId, name, text }, { upsert: true }, (err) => {
+        const formattedText = `Seu nome é ${name}. ${text}`;
+        promptsDb.update({ chatId, name }, { chatId, name, text: formattedText }, { upsert: true }, (err) => {
             if (err) reject(err);
             else resolve();
         });
@@ -516,6 +520,15 @@ async function setActiveSystemPrompt(chatId, promptName) {
         logger.error(`Erro ao definir System Instruction ativa: ${error.message}`, { error });
         return false;
     }
+}
+
+async function clearChatOnInstructionChange(chatId) {
+    //try {
+    //    await messagesDb.remove({ chatId: chatId }, { multi: true });
+    //    logger.info(`Chat limpo para ${chatId} devido à mudança nas instruções do sistema`);
+    //} catch (error) {
+    //    logger.error(`Erro ao limpar chat para ${chatId}: ${error.message}`);
+    //}
 }
 
 async function clearActiveSystemPrompt(chatId) {
