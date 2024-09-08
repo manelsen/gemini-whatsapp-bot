@@ -304,7 +304,7 @@ async function handleTextMessage(msg) {
         const userPromptText = history.join('\n\n') + '\n\n' + lastQuestion;
 
         console.log('Gerando resposta para:', userPromptText);
-        console.log('Pergunta recebida: ', history)
+        console.log('Pergunta recebida: ', lastQuestion)
         const response = await generateResponseWithText(model, userPromptText, userId);
         console.log('Resposta gerada:', response);
 
