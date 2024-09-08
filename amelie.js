@@ -293,23 +293,27 @@ async function generateResponseWithText(userPrompt, chatId) {
     try {
         const userConfig = await getConfig(chatId);
 
-        // Configuração válida incluindo systemInstructions
+        // Configuração válida sem systemInstructions
         const validConfig = {
             temperature: userConfig.temperature,
             topK: userConfig.topK,
             topP: userConfig.topP,
-            maxOutputTokens: userConfig.maxOutputTokens,
-            systemInstructions: userConfig.systemInstructions
+            maxOutputTokens: userConfig.maxOutputTokens
         };
 
-        // Inicialize o modelo com as instruções do sistema
-        const modelWithInstructions = genAI.getGenerativeModel({
-            model: "gemini-1.5-flash",
-            ...validConfig
-        });
+        // Inicialize o modelo
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-        // Gere o conteúdo
-        const result = await modelWithInstructions.generateContent(userPrompt);
+        // Inicie um chat
+        const chat = model.startChat(validConfig);
+
+        // Se houver instruções do sistema, envie-as como uma mensagem separada
+        if (userConfig.systemInstructions) {
+            await chat.sendMessage(userConfig.systemInstructions);
+        }
+
+        // Envie a mensagem do usuário
+        const result = await chat.sendMessage(userPrompt);
         const responseText = result.response.text();
 
         if (!responseText) {
@@ -551,6 +555,11 @@ async function getConfig(chatId) {
                     if (activePrompt) {
                         config.systemInstructions = activePrompt.text;
                     }
+                }
+
+                // Garanta que systemInstructions seja uma string
+                if (config.systemInstructions && typeof config.systemInstructions !== 'string') {
+                    config.systemInstructions = String(config.systemInstructions);
                 }
 
                 resolve(config);
