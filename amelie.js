@@ -1,10 +1,12 @@
 const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { GoogleAIFileManager } = require("@google/generative-ai/server");
 const dotenv = require('dotenv');
 const winston = require('winston');
 const Datastore = require('nedb');
 const fs = require('fs').promises;
+const path = require('path');
 
 dotenv.config();
 
@@ -39,6 +41,9 @@ const genAI = new GoogleGenerativeAI(API_KEY);
 
 // Inicialização do modelo Gemini
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+// Inicialização do FileManager
+const fileManager = new GoogleAIFileManager(API_KEY);
 
 // Mapa para armazenar as últimas respostas por chat
 const lastResponses = new Map();
@@ -78,7 +83,7 @@ client.on('message_create', async (msg) => {
 
         if (chat.isGroup) {
             const shouldRespond = await shouldRespondInGroup(msg, chat);
-            if (!shouldRespond) return;
+            if (!shouldRespond && !msg.hasMedia) return;
         }
 
         if (msg.body.startsWith('!')) {
@@ -86,12 +91,12 @@ client.on('message_create', async (msg) => {
             await handleCommand(msg, chatId);
         } else if (msg.hasMedia) {
             const attachmentData = await msg.downloadMedia();
-            if (attachmentData.mimetype === 'audio/ogg; codecs=opus') {
+            if (attachmentData.mimetype === 'audio/ogg; codecs=opus' || attachmentData.mimetype.startsWith('audio/')) {
                 await handleAudioMessage(msg, attachmentData, chatId);
             } else if (attachmentData.mimetype.startsWith('image/')) {
                 await handleImageMessage(msg, attachmentData, chatId);
             } else {
-                await msg.reply('Desculpe, no momento só posso processar áudios nativos do WhatsApp e imagens.');
+                await msg.reply('Desculpe, no momento só posso processar áudios e imagens.');
             }
         } else {
             await handleTextMessage(msg);
@@ -195,34 +200,38 @@ async function handleTextMessage(msg) {
 async function handleAudioMessage(msg, audioData, chatId) {
     try {
         const isLargeFile = audioData.data.length > 20 * 1024 * 1024; // 20MB
-        let audioContent;
+        let audioFile;
 
         if (isLargeFile) {
-            // Para arquivos grandes, salve temporariamente e leia o conteúdo
-            const tempFilePath = `./temp_audio_${chatId}.ogg`;
+            // Para arquivos grandes, use o File API
+            const tempFilePath = path.join(__dirname, `temp_audio_${chatId}.ogg`);
             await fs.writeFile(tempFilePath, audioData.data);
-            audioContent = await fs.readFile(tempFilePath);
+            audioFile = await fileManager.uploadFile(tempFilePath, {
+                mimeType: audioData.mimetype,
+            });
             await fs.unlink(tempFilePath); // Remover arquivo temporário
         } else {
-            audioContent = audioData.data;
+            // Para arquivos pequenos, use inline data
+            audioFile = {
+                inlineData: {
+                    data: audioData.data.toString('base64'),
+                    mimeType: audioData.mimetype
+                }
+            };
         }
-
-        // Criar parte de conteúdo para o áudio
-        const audioPart = {
-            inlineData: {
-                data: audioContent.toString('base64'),
-                mimeType: 'audio/ogg'
-            }
-        };
 
         // Gerar conteúdo usando o modelo
         const result = await model.generateContent([
-            audioPart,
+            audioFile,
             { text: "Por favor, transcreva o áudio e depois resuma o conteúdo em português." }
         ]);
 
         const response = await result.response.text();
         await sendLongMessage(msg, response);
+
+        // Atualizar o histórico de mensagens
+        await updateMessageHistory(chatId, msg.author || msg.from, '[Áudio]', false);
+        await updateMessageHistory(chatId, BOT_NAME, response, true);
 
     } catch (error) {
         logger.error(`Erro ao processar mensagem de áudio: ${error.message}`, { error });
@@ -246,6 +255,10 @@ async function handleImageMessage(msg, imageData, chatId) {
 
         const response = await result.response.text();
         await sendLongMessage(msg, response);
+
+        // Atualizar o histórico de mensagens
+        await updateMessageHistory(chatId, msg.author || msg.from, '[Imagem]', false);
+        await updateMessageHistory(chatId, BOT_NAME, response, true);
 
     } catch (error) {
         logger.error(`Erro ao processar mensagem de imagem: ${error.message}`, { error });
@@ -353,8 +366,7 @@ async function handlePromptCommand(msg, args, chatId) {
             } else {
                 await msg.reply('Uso correto: !prompt get <nome>');
             }
-            break;
-        case 'list':
+            case 'list':
             const prompts = await listSystemPrompts(chatId);
             if (prompts.length > 0) {
                 const promptList = prompts.map(p => p.name).join(', ');
@@ -372,185 +384,184 @@ async function handlePromptCommand(msg, args, chatId) {
                 } else {
                     await msg.reply(`System Instruction "${name}" não encontrada.`);
                 }
+            } else {
+                await msg.reply('Uso correto: !prompt use <nome>');
             }
-            else {
-            await msg.reply('Uso correto: !prompt use <nome>');
-        }
-        break;
-    case 'clear':
-        await clearActiveSystemPrompt(chatId);
-        await msg.reply('System Instruction removida. Usando o modelo padrão.');
-        break;
-    default:
-        await msg.reply('Subcomando de prompt desconhecido. Use !help para ver os comandos disponíveis.');
-}
+            break;
+        case 'clear':
+            await clearActiveSystemPrompt(chatId);
+            await msg.reply('System Instruction removida. Usando o modelo padrão.');
+            break;
+        default:
+            await msg.reply('Subcomando de prompt desconhecido. Use !help para ver os comandos disponíveis.');
+    }
 }
 
 async function handleConfigCommand(msg, args, chatId) {
-const [subcommand, param, value] = args;
+    const [subcommand, param, value] = args;
 
-switch (subcommand) {
-    case 'set':
-        if (param && value) {
-            if (['temperature', 'topK', 'topP', 'maxOutputTokens'].includes(param)) {
-                const numValue = parseFloat(value);
-                if (!isNaN(numValue)) {
-                    await setConfig(chatId, param, numValue);
-                    await msg.reply(`Parâmetro ${param} definido como ${numValue}`);
+    switch (subcommand) {
+        case 'set':
+            if (param && value) {
+                if (['temperature', 'topK', 'topP', 'maxOutputTokens'].includes(param)) {
+                    const numValue = parseFloat(value);
+                    if (!isNaN(numValue)) {
+                        await setConfig(chatId, param, numValue);
+                        await msg.reply(`Parâmetro ${param} definido como ${numValue}`);
+                    } else {
+                        await msg.reply(`Valor inválido para ${param}. Use um número.`);
+                    }
                 } else {
-                    await msg.reply(`Valor inválido para ${param}. Use um número.`);
+                    await msg.reply(`Parâmetro desconhecido: ${param}`);
                 }
             } else {
-                await msg.reply(`Parâmetro desconhecido: ${param}`);
+                await msg.reply('Uso correto: !config set <param> <valor>');
             }
-        } else {
-            await msg.reply('Uso correto: !config set <param> <valor>');
-        }
-        break;
-    case 'get':
-        const config = await getConfig(chatId);
-        if (param) {
-            if (config.hasOwnProperty(param)) {
-                await msg.reply(`${param}: ${config[param]}`);
+            break;
+        case 'get':
+            const config = await getConfig(chatId);
+            if (param) {
+                if (config.hasOwnProperty(param)) {
+                    await msg.reply(`${param}: ${config[param]}`);
+                } else {
+                    await msg.reply(`Parâmetro desconhecido: ${param}`);
+                }
             } else {
-                await msg.reply(`Parâmetro desconhecido: ${param}`);
+                const configString = Object.entries(config)
+                    .map(([key, value]) => `${key}: ${value}`)
+                    .join('\n');
+                await msg.reply(`Configuração atual:\n${configString}`);
             }
-        } else {
-            const configString = Object.entries(config)
-                .map(([key, value]) => `${key}: ${value}`)
-                .join('\n');
-            await msg.reply(`Configuração atual:\n${configString}`);
-        }
-        break;
-    default:
-        await msg.reply('Subcomando de config desconhecido. Use !help para ver os comandos disponíveis.');
-}
+            break;
+        default:
+            await msg.reply('Subcomando de config desconhecido. Use !help para ver os comandos disponíveis.');
+    }
 }
 
 function setSystemPrompt(chatId, name, text) {
-return new Promise((resolve, reject) => {
-    promptsDb.update({ chatId, name }, { chatId, name, text }, { upsert: true }, (err) => {
-        if (err) reject(err);
-        else resolve();
+    return new Promise((resolve, reject) => {
+        promptsDb.update({ chatId, name }, { chatId, name, text }, { upsert: true }, (err) => {
+            if (err) reject(err);
+            else resolve();
+        });
     });
-});
 }
 
 function getSystemPrompt(chatId, name) {
-return new Promise((resolve, reject) => {
-    promptsDb.findOne({ chatId, name }, (err, doc) => {
-        if (err) reject(err);
-        else resolve(doc);
+    return new Promise((resolve, reject) => {
+        promptsDb.findOne({ chatId, name }, (err, doc) => {
+            if (err) reject(err);
+            else resolve(doc);
+        });
     });
-});
 }
 
 function listSystemPrompts(chatId) {
-return new Promise((resolve, reject) => {
-    promptsDb.find({ chatId }, (err, docs) => {
-        if (err) reject(err);
-        else resolve(docs);
+    return new Promise((resolve, reject) => {
+        promptsDb.find({ chatId }, (err, docs) => {
+            if (err) reject(err);
+            else resolve(docs);
+        });
     });
-});
 }
 
 async function setActiveSystemPrompt(chatId, promptName) {
-try {
-    const prompt = await getSystemPrompt(chatId, promptName);
-    if (prompt) {
-        await setConfig(chatId, 'activePrompt', promptName);
-        return true;
+    try {
+        const prompt = await getSystemPrompt(chatId, promptName);
+        if (prompt) {
+            await setConfig(chatId, 'activePrompt', promptName);
+            return true;
+        }
+        return false;
+    } catch (error) {
+        logger.error(`Erro ao definir System Instruction ativa: ${error.message}`, { error });
+        return false;
     }
-    return false;
-} catch (error) {
-    logger.error(`Erro ao definir System Instruction ativa: ${error.message}`, { error });
-    return false;
-}
 }
 
 async function clearActiveSystemPrompt(chatId) {
-try {
-    await setConfig(chatId, 'activePrompt', null);
-    return true;
-} catch (error) {
-    logger.error(`Erro ao limpar System Instruction ativa: ${error.message}`, { error });
-    return false;
-}
+    try {
+        await setConfig(chatId, 'activePrompt', null);
+        return true;
+    } catch (error) {
+        logger.error(`Erro ao limpar System Instruction ativa: ${error.message}`, { error });
+        return false;
+    }
 }
 
 function setConfig(chatId, param, value) {
-return new Promise((resolve, reject) => {
-    configDb.update(
-        { chatId },
-        { $set: { [param]: value } },
-        { upsert: true },
-        (err) => {
-            if (err) reject(err);
-            else resolve();
-        }
-    );
-});
+    return new Promise((resolve, reject) => {
+        configDb.update(
+            { chatId },
+            { $set: { [param]: value } },
+            { upsert: true },
+            (err) => {
+                if (err) reject(err);
+                else resolve();
+            }
+        );
+    });
 }
 
 async function getConfig(chatId) {
-return new Promise((resolve, reject) => {
-    configDb.findOne({ chatId }, async (err, doc) => {
-        if (err) reject(err);
-        else {
-            const userConfig = doc || {};
-            const config = { ...defaultConfig, ...userConfig };
+    return new Promise((resolve, reject) => {
+        configDb.findOne({ chatId }, async (err, doc) => {
+            if (err) reject(err);
+            else {
+                const userConfig = doc || {};
+                const config = { ...defaultConfig, ...userConfig };
 
-            if (config.activePrompt) {
-                const activePrompt = await getSystemPrompt(chatId, config.activePrompt);
-                if (activePrompt) {
-                    config.systemInstructions = activePrompt.text;
+                if (config.activePrompt) {
+                    const activePrompt = await getSystemPrompt(chatId, config.activePrompt);
+                    if (activePrompt) {
+                        config.systemInstructions = activePrompt.text;
+                    }
                 }
-            }
 
-            resolve(config);
-        }
+                resolve(config);
+            }
+        });
     });
-});
 }
 
 async function sendLongMessage(msg, text) {
-try {
-    if (!text || typeof text !== 'string' || text.trim() === '') {
-        logger.error('Tentativa de enviar mensagem inválida:', { text });
-        text = "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente.";
+    try {
+        if (!text || typeof text !== 'string' || text.trim() === '') {
+            logger.error('Tentativa de enviar mensagem inválida:', { text });
+            text = "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente.";
+        }
+
+        let trimmedText = text.trim();
+        trimmedText = trimmedText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n{3,}/g, '\n\n');
+
+        logger.debug('Enviando mensagem:', { text: trimmedText });
+        await msg.reply(trimmedText);
+    } catch (error) {
+        logger.error(`Erro ao enviar mensagem: ${error.message}`, { error });
+        await msg.reply('Desculpe, ocorreu um erro ao enviar a resposta. Por favor, tente novamente.');
     }
-
-    let trimmedText = text.trim();
-    trimmedText = trimmedText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n{3,}/g, '\n\n');
-
-    logger.debug('Enviando mensagem:', { text: trimmedText });
-    await msg.reply(trimmedText);
-} catch (error) {
-    logger.error(`Erro ao enviar mensagem: ${error.message}`, { error });
-    await msg.reply('Desculpe, ocorreu um erro ao enviar a resposta. Por favor, tente novamente.');
-}
 }
 
 function resetSessionAfterInactivity(chatId, inactivityPeriod = 3600000) { // 1 hora
-setTimeout(() => {
-    logger.info(`Sessão resetada para o chat ${chatId} após inatividade`);
-    resetHistory(chatId);
-}, inactivityPeriod);
+    setTimeout(() => {
+        logger.info(`Sessão resetada para o chat ${chatId} após inatividade`);
+        resetHistory(chatId);
+    }, inactivityPeriod);
 }
 
 function isSimilar(text1, text2) {
-// Implemente sua lógica de comparação de similaridade aqui
-// Você pode usar algoritmos como Levenshtein distance, cosine similarity, etc.
-return false; // Placeholder
+    // Implemente sua lógica de comparação de similaridade aqui
+    // Você pode usar algoritmos como Levenshtein distance, cosine similarity, etc.
+    return false; // Placeholder
 }
 
 client.initialize();
 
 process.on('unhandledRejection', (reason, promise) => {
-logger.error('Unhandled Rejection at:', { promise, reason });
+    logger.error('Unhandled Rejection at:', { promise, reason });
 });
 
 process.on('uncaughtException', (error) => {
-logger.error(`Uncaught Exception: ${error.message}`, { error });
-process.exit(1);
+    logger.error(`Uncaught Exception: ${error.message}`, { error });
+    process.exit(1);
 });
