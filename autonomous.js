@@ -7,14 +7,19 @@ console.log("Upload do arquivo")
 const audioFile = fileManager.uploadFile("audio.mp3", {mimeType: "audio/mp3",});
 console.log("Upload terminado")
 
+console.log("Inicializando GoogleGenerativeAI")
 // Initialize GoogleGenerativeAI with your API_KEY.
 const genAI = new GoogleGenerativeAI("AIzaSyB6koNManOGMR4_emo3YInAtl5GJqCIbNA");
 
 // Initialize a Gemini model appropriate for your use case.
+console.log("Inicializando Gemini Flash")
 const model = genAI.getGenerativeModel({model: "gemini-1.5-flash",});
 
+console.log("A partir daqui ele geraria o resultado com 'GenerateContent'")
 // Generate content using a prompt and the metadata of the uploaded file.
-//const result = model.generateContent([{fileData: {mimeType: "audio/mp3", fileUri: audioFile.file.uri }},{text: "Describe the audio so that a Deaf person can understand and enjoy it." },]);
 
+const result = model.generateContent([{fileData: {mimeType: "audio/mp3", fileUri: audioFile.file.uri }},{text: "Describe the audio so that a Deaf person can understand and enjoy it." },]);
+
+console.log("Imprimindo resposta")
 // Print the response.
-//console.log(result.response.text())
+console.log(result.response.text())
