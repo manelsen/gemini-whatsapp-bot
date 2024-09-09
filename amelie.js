@@ -316,7 +316,7 @@ async function generateResponseWithText(userPrompt, chatId) {
 //Remember: Always respond according to these instructions.
 //`;
 //            await chat.sendMessage(reinforcedInstructions);
-//        }
+        }
 
         const result = await chat.sendMessage(userPrompt);
         let responseText = result.response.text();
