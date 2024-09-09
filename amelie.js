@@ -209,7 +209,7 @@ async function handleTextMessage(msg) {
 
 async function handleAudioMessage(msg, audioData, chatId) {
     try {
-        const tempFilePath = path.join(__dirname, `temp_audio{path.extname(audioData.filename || '.mp3')}`);
+        const tempFilePath = path.join(__dirname, `temp_audio_${path.extname(audioData.filename || '.mp3')}`);
         await fs.writeFile(tempFilePath, audioData.data);
 
         logger.info(`Processando arquivo de áudio: ${tempFilePath}`);
