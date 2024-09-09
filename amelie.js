@@ -307,16 +307,16 @@ async function generateResponseWithText(userPrompt, chatId) {
         const chat = model.startChat(validConfig);
 
         if (userConfig.systemInstructions) {
-            logger.info(`Lembrete: estas são as Instruções do Sistema: ${userConfig.systemInstructions}`)
-            const reinforcedInstructions = `
-IMPORTANT: The following are your system instructions. Always adhere to these instructions:
-
-${userConfig.systemInstructions}
-
-Remember: Always respond according to these instructions.
-`;
-            await chat.sendMessage(reinforcedInstructions);
-        }
+//            logger.info(`Lembrete: estas são as Instruções do Sistema: ${userConfig.systemInstructions}`)
+//            const reinforcedInstructions = `
+//IMPORTANT: The following are your system instructions. Always adhere to these instructions:
+//
+//${userConfig.systemInstructions}
+//
+//Remember: Always respond according to these instructions.
+//`;
+//            await chat.sendMessage(reinforcedInstructions);
+//        }
 
         const result = await chat.sendMessage(userPrompt);
         let responseText = result.response.text();
