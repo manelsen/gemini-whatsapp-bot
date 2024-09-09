@@ -13,7 +13,7 @@ dotenv.config();
 // Configuração de variáveis de ambiente
 const API_KEY = process.env.API_KEY;
 const MAX_HISTORY = parseInt(process.env.MAX_HISTORY || '500');
-let BOT_NAME = process.env.BOT_NAME || 'Amelie';
+let bot_name = process.env.BOT_NAME || 'Amelie';
 
 // Configuração do logger
 const logger = winston.createLogger({
@@ -129,7 +129,7 @@ async function shouldRespondInGroup(msg, chat) {
         isReplyToBot = quotedMsg.fromMe;
     }
 
-    const isBotNameMentioned = msg.body.toLowerCase().includes(BOT_NAME.toLowerCase());
+    const isBotNameMentioned = msg.body.toLowerCase().includes(bot_name.toLowerCase());
 
     return isBotMentioned || isReplyToBot || isBotNameMentioned;
 }
@@ -182,7 +182,7 @@ async function handleTextMessage(msg) {
 
         const history = await getMessageHistory(chatId);
 
-        const userPromptText = history.join('\n') + `\n${sender}: ${msg.body}\n${BOT_NAME}:`;
+        const userPromptText = history.join('\n') + `\n${sender}: ${msg.body}\n${bot_name}:`;
 
         logger.info(`Gerando resposta para: ${userPromptText}`);
         const response = await generateResponseWithText(userPromptText, chatId);
@@ -199,7 +199,7 @@ async function handleTextMessage(msg) {
             response = "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente.";
         }
 
-        await updateMessageHistory(chatId, BOT_NAME, response, true);
+        await updateMessageHistory(chatId, bot_name, response, true);
         await sendLongMessage(msg, response);
     } catch (error) {
         logger.error(`Erro ao processar mensagem de texto: ${error.message}`, { error });
@@ -214,7 +214,10 @@ async function handleAudioMessage(msg, audioData, chatId) {
 
         logger.info(`Processando arquivo de áudio: ${tempFilePath}`);
 
+        console.log("Pause");
+        await new Promise(resolve => setTimeout(resolve, 5000));
         // Upload do arquivo usando o File API
+        console.log("Unpause");
         const uploadedFile = await fileManager.uploadFile(tempFilePath, {
             mimeType: audioData.mimetype || 'audio/mp3',
         });
@@ -238,7 +241,7 @@ async function handleAudioMessage(msg, audioData, chatId) {
 
         // Atualizar o histórico de mensagens
         await updateMessageHistory(chatId, msg.author || msg.from, '[Áudio]', false);
-        await updateMessageHistory(chatId, BOT_NAME, response, true);
+        await updateMessageHistory(chatId, bot_name, response, true);
 
         // Limpar arquivo temporário
         await fs.unlink(tempFilePath);
@@ -281,7 +284,7 @@ async function handleImageMessage(msg, imageData, chatId) {
 
         // Atualizar o histórico de mensagens
         await updateMessageHistory(chatId, msg.author || msg.from, '[Imagem]', false);
-        await updateMessageHistory(chatId, BOT_NAME, response, true);
+        await updateMessageHistory(chatId, bot_name, response, true);
 
     } catch (error) {
         logger.error(`Erro ao processar mensagem de imagem: ${error.message}`, { error });
@@ -483,7 +486,7 @@ async function handleConfigCommand(msg, args, chatId) {
 function setSystemPrompt(chatId, name, text) {
     return new Promise((resolve, reject) => {
         const formattedText = `Seu nome é ${name}. ${text}`;
-        BOT_NAME = name
+        bot_name = name
         promptsDb.update({ chatId, name }, { chatId, name, text: formattedText }, { upsert: true }, (err) => {
             if (err) reject(err);
             else resolve();
