@@ -13,7 +13,7 @@ dotenv.config();
 // Configuração de variáveis de ambiente
 const API_KEY = process.env.API_KEY;
 const MAX_HISTORY = parseInt(process.env.MAX_HISTORY || '500');
-const BOT_NAME = process.env.BOT_NAME || 'Amelie';
+let BOT_NAME = process.env.BOT_NAME || 'Amelie';
 
 // Configuração do logger
 const logger = winston.createLogger({
