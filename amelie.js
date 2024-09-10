@@ -189,6 +189,9 @@ async function handleTextMessage(msg) {
         // Obter ou criar informações do usuário
         const user = await getOrCreateUser(sender, chat);
 
+        // Obter a configuração específica do chat, incluindo o nome do bot
+        const chatConfig = await getConfig(chatId);
+
         await updateMessageHistory(chatId, user.name, msg.body);
 
         const history = await getMessageHistory(chatId);
@@ -210,7 +213,8 @@ async function handleTextMessage(msg) {
             response = "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente.";
         }
 
-        await updateMessageHistory(chatId, bot_name, response, true);
+        // Use o nome do bot específico do chat
+        await updateMessageHistory(chatId, chatConfig.botName, response, true);
         await sendLongMessage(msg, response);
     } catch (error) {
         logger.error(`Erro ao processar mensagem de texto: ${error.message}`, { error });
@@ -557,10 +561,10 @@ async function handleConfigCommand(msg, args, chatId) {
     }
 }
 
+// Modifique a função setSystemPrompt
 function setSystemPrompt(chatId, name, text) {
     return new Promise((resolve, reject) => {
         const formattedText = `Seu nome é ${name}. ${text}`;
-        bot_name = name
         promptsDb.update({ chatId, name }, { chatId, name, text: formattedText }, { upsert: true }, (err) => {
             if (err) reject(err);
             else resolve();
@@ -591,8 +595,9 @@ async function setActiveSystemPrompt(chatId, promptName) {
         const prompt = await getSystemPrompt(chatId, promptName);
         if (prompt) {
             await setConfig(chatId, 'activePrompt', promptName);
-            bot_name = promptName
-            logger.debug(chatId, promptName)
+            // Remova a atribuição global de bot_name
+            // bot_name = promptName
+            logger.debug(`Active prompt set for chat ${chatId}: ${promptName}`);
             return true;
         }
         return false;
@@ -647,7 +652,16 @@ async function getConfig(chatId) {
                     const activePrompt = await getSystemPrompt(chatId, config.activePrompt);
                     if (activePrompt) {
                         config.systemInstructions = activePrompt.text;
+                        // Extraia o nome do bot das instruções do sistema
+                        const match = config.systemInstructions.match(/^Seu nome é (\w+)\./);
+                        if (match) {
+                            config.botName = match[1];
+                        } else {
+                            config.botName = process.env.BOT_NAME || 'Amelie';
+                        }
                     }
+                } else {
+                    config.botName = process.env.BOT_NAME || 'Amelie';
                 }
 
                 // Garanta que systemInstructions seja uma string
