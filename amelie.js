@@ -183,9 +183,8 @@ async function handleTextMessage(msg) {
 
         const history = await getMessageHistory(chatId);
 
-        const userPromptText = `Este é um histórico de Whatsapp. Use o histórico como contexto e responda à última pergunta feita.${history.join('\n')}
-        User: ${msg.body}
-        Model:`;
+        const userPromptText = `Histórico: (formato: número de whatsapp e em seguida mensagem)\n\n${history.join('\n')}
+        Sua resposta:`;
 
         logger.info(`Gerando resposta para: ${userPromptText}`);
         const response = await generateResponseWithText(userPromptText, chatId);
