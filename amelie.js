@@ -174,38 +174,49 @@ async function handleCommand(msg, chatId) {
 }
 
 async function handleTextMessage(msg) {
+    const chatId = msg.from;
+    const sender = msg.author || msg.from;
+    const userInput = msg.body.trim();
+  
     try {
-        const chatId = msg.from;
-        const sender = msg.author || msg.from;
-
-        await updateMessageHistory(chatId, sender, msg.body);
-
-        const history = await getMessageHistory(chatId);
-
-        const userPromptText = history.join('\n') + `\n${sender}: ${msg.body}\n${bot_name}:`;
-
-        logger.info(`Gerando resposta para: ${userPromptText}`);
-        const response = await generateResponseWithText(userPromptText, chatId);
-        logger.info(`Resposta gerada: ${response}`);
-
-        const lastResponse = lastResponses.get(chatId);
-        if (lastResponse && isSimilar(response, lastResponse)) {
-            response = "Desculpe, parece que já respondi a essa pergunta. Tente perguntar algo diferente.";
-        }
-
-        lastResponses.set(chatId, response);
-
-        if (!response || response.trim() === '') {
-            response = "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente.";
-        }
-
-        await updateMessageHistory(chatId, bot_name, response, true);
-        await sendLongMessage(msg, response);
+      // Verificar se é uma mensagem de comando
+      if (userInput.startsWith('!')) {
+        await handleCommand(msg, chatId);
+        return;
+      }
+  
+      // Atualizar o histórico de mensagens
+      await updateMessageHistory(chatId, sender, userInput);
+  
+      // Obter o histórico de mensagens para contexto
+      const history = await getMessageHistory(chatId);
+  
+      // Gerar a resposta
+      let response = await generateResponseWithText(userInput, chatId, history);
+      response = postProcessResponse(response);
+  
+      // Verificar similaridade com a última resposta
+      const lastResponse = lastResponses.get(chatId);
+      if (lastResponse && isSimilar(response, lastResponse)) {
+        response = "Desculpe, parece que já respondi a essa pergunta. Pode elaborar mais ou perguntar algo diferente?";
+      }
+  
+      // Atualizar a última resposta
+      lastResponses.set(chatId, response);
+  
+      // Enviar a resposta
+      await sendLongMessage(msg, response);
+  
+      // Atualizar o histórico com a resposta do bot
+      await updateMessageHistory(chatId, bot_name, response, true);
+  
+      // Resetar a sessão após inatividade
+      resetSessionAfterInactivity(chatId);
     } catch (error) {
-        logger.error(`Erro ao processar mensagem de texto: ${error.message}`, { error });
-        await msg.reply('Desculpe, ocorreu um erro ao processar sua mensagem. Por favor, tente novamente.');
+      logger.error(`Erro ao processar mensagem: ${error.message}`, { error });
+      await msg.reply("Desculpe, ocorreu um erro ao processar sua mensagem. Pode tentar novamente?");
     }
-}
+  }
 
 async function handleAudioMessage(msg, audioData, chatId) {
     try {
@@ -215,9 +226,7 @@ async function handleAudioMessage(msg, audioData, chatId) {
         logger.info(`Processando arquivo de áudio: ${tempFilePath}`);
 
         console.log("Pause");
-        await new Promise(resolve => setTimeout(resolve, 5000));
         // Upload do arquivo usando o File API
-        console.log("Unpause");
         const uploadedFile = await fileManager.uploadFile(tempFilePath, {
             mimeType: audioData.mimetype || 'audio/mp3',
         });
@@ -292,50 +301,68 @@ async function handleImageMessage(msg, imageData, chatId) {
     }
 }
 
-async function generateResponseWithText(userPrompt, chatId) {
+async function generateResponseWithText(userPrompt, chatId, history) {
     try {
-        const userConfig = await getConfig(chatId);
-
-        const validConfig = {
-            temperature: userConfig.temperature,
-            topK: userConfig.topK,
-            topP: userConfig.topP,
-            maxOutputTokens: userConfig.maxOutputTokens
-        };
-
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const chat = model.startChat(validConfig);
-
-        if (userConfig.systemInstructions) {
-//            logger.info(`Lembrete: estas são as Instruções do Sistema: ${userConfig.systemInstructions}`)
-//            const reinforcedInstructions = `
-//IMPORTANT: The following are your system instructions. Always adhere to these instructions:
-//
-//${userConfig.systemInstructions}
-//
-//Remember: Always respond according to these instructions.
-//`;
-//            await chat.sendMessage(reinforcedInstructions);
+      const userConfig = await getConfig(chatId);
+  
+      // Configuração do modelo
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-1.5-pro",
+        safetySettings: [
+          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+        ]
+      });
+  
+      const chat = model.startChat({
+        history: history,
+        generationConfig: {
+          temperature: userConfig.temperature,
+          topK: userConfig.topK,
+          topP: userConfig.topP,
+          maxOutputTokens: userConfig.maxOutputTokens,
+        },
+      });
+  
+      const contextualPrompt = `
+      Contexto: Você é ${bot_name}, um assistente em uma conversa contínua em português no WhatsApp.
+      Instruções:
+      - Responda sempre em português de forma natural e contextualizada.
+      - Considere o histórico da conversa ao formular sua resposta.
+      - Adapte seu tom e comprimento da resposta de acordo com o contexto.
+      - Seja útil e informativo, independentemente do comprimento da mensagem do usuário.
+      - Se a mensagem for ambígua, peça esclarecimentos de forma educada.
+      - Lembre-se das instruções do sistema: ${userConfig.systemInstructions || "Nenhuma instrução específica definida."}
+  
+      Mensagem do usuário: "${userPrompt}"
+      `;
+  
+      const result = await chat.sendMessage(contextualPrompt);
+      let responseText = result.response.text();
+  
+      if (!responseText || responseText.trim() === '') {
+        throw new Error('Resposta vazia gerada');
+      }
+  
+      // Verificar limites de segurança
+      if (result.response.promptFeedback && result.response.promptFeedback.safetyRatings) {
+        const blocked = result.response.promptFeedback.safetyRatings.some(rating => rating.probability === 'HIGH');
+        if (blocked) {
+          return "Desculpe, não posso responder a essa solicitação devido a restrições de segurança.";
         }
-
-        const result = await chat.sendMessage(userPrompt);
-        let responseText = result.response.text();
-
-        if (!responseText) {
-            throw new Error('Resposta vazia gerada pelo modelo');
-        }
-
-        return responseText;
+      }
+      
+      return responseText;
     } catch (error) {
-        logger.error(`Erro ao gerar resposta de texto: ${error.message}`, { error });
-
-        if (error.message.includes('SAFETY')) {
-            return "Desculpe, não posso gerar uma resposta para essa solicitação devido a restrições de segurança. Por favor, tente reformular sua pergunta de uma maneira diferente.";
-        }
-
-        return "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente ou reformule sua pergunta.";
+      logger.error(`Erro ao gerar resposta: ${error.message}`, { error });
+      if (error.message.includes('SAFETY')) {
+        return "Desculpe, não posso gerar uma resposta para essa solicitação devido a restrições de segurança. Pode reformular de outra maneira?";
+      }
+      return "Desculpe, tive dificuldade em processar sua mensagem. Pode tentar novamente?";
     }
-}
+  }
 
 function getMessageHistory(chatId) {
     return new Promise((resolve, reject) => {
