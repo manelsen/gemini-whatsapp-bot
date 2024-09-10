@@ -294,16 +294,18 @@ async function handleImageMessage(msg, imageData, chatId) {
 async function generateResponseWithText(userPrompt, chatId) {
     try {
         const userConfig = await getConfig(chatId);
+        console.log(userConfig)
 
         const validConfig = {
             temperature: userConfig.temperature,
             topK: userConfig.topK,
             topP: userConfig.topP,
             maxOutputTokens: userConfig.maxOutputTokens
+
         };
 
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const chat = model.startChat(validConfig);
+        const chat = model.startChat(userConfig);
 
         if (userConfig.systemInstructions) {
 //            logger.info(`Lembrete: estas são as Instruções do Sistema: ${userConfig.systemInstructions}`)
