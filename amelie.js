@@ -237,7 +237,7 @@ async function getOrCreateUser(sender, chat) {
                     
                     const newUser = {
                         id: sender,
-                        name: contact.pushname || contact.name || `User${sender.substring(0, 6)}`,
+                        name: contact.pushname || contact.name || `User${sender.substring(0, 12)}`,
                         joinedAt: new Date()
                     };
                     
