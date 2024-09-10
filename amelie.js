@@ -517,7 +517,7 @@ async function setActiveSystemPrompt(chatId, promptName) {
         if (prompt) {
             await setConfig(chatId, 'activePrompt', promptName);
             bot_name = promptName
-            logger.debug(chatId, activePrompt, promptName)
+            logger.debug(chatId, promptName)
             return true;
         }
         return false;
