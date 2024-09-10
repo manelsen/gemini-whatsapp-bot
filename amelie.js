@@ -35,6 +35,7 @@ const logger = winston.createLogger({
 const messagesDb = new Datastore({ filename: 'messages.db', autoload: true });
 const promptsDb = new Datastore({ filename: 'prompts.db', autoload: true });
 const configDb = new Datastore({ filename: 'config.db', autoload: true });
+const usersDb = new Datastore({ filename: 'users.db', autoload: true });
 
 // Inicialização do GoogleGenerativeAI
 const genAI = new GoogleGenerativeAI(API_KEY);
@@ -135,6 +136,7 @@ async function shouldRespondInGroup(msg, chat) {
     return isBotMentioned || isReplyToBot || isBotNameMentioned;
 }
 
+// Modifique a função handleCommand para incluir o novo comando
 async function handleCommand(msg, chatId) {
     const [command, ...args] = msg.body.slice(1).split(' ');
     logger.info(`Comando: ${command}, Argumentos: ${args}`);
@@ -147,16 +149,17 @@ async function handleCommand(msg, chatId) {
                 break;
             case 'help':
                 await msg.reply(
-                    'Comandos disponíveis:\n' +
-                    '!reset - Limpa o histórico de conversa\n' +
-                    '!prompt set <nome> <texto> - Define uma nova System Instruction\n' +
-                    '!prompt get <nome> - Mostra uma System Instruction existente\n' +
-                    '!prompt list - Lista todas as System Instructions\n' +
-                    '!prompt use <nome> - Usa uma System Instruction específica\n' +
-                    '!prompt clear - Remove a System Instruction ativa\n' +
-                    '!config set <param> <valor> - Define um parâmetro de configuração\n' +
-                    '!config get [param] - Mostra a configuração atual\n' +
-                    '!help - Mostra esta mensagem de ajuda'
+                    `Comandos disponíveis:\n 
+                    !reset - Limpa o histórico de conversa\n 
+                    !prompt set <nome> <texto> - Define uma nova System Instruction\n 
+                    !prompt get <nome> - Mostra uma System Instruction existente\n 
+                    !prompt list - Lista todas as System Instructions\n 
+                    !prompt use <nome> - Usa uma System Instruction específica\n 
+                    !prompt clear - Remove a System Instruction ativa\n 
+                    !config set <param> <valor> - Define um parâmetro de configuração\n 
+                    !config get [param] - Mostra a configuração atual\n 
+                    !users - Lista os usuários do grupo\n 
+                    !help - Mostra esta mensagem de ajuda`
                 );
                 break;
             case 'prompt':
@@ -164,6 +167,9 @@ async function handleCommand(msg, chatId) {
                 break;
             case 'config':
                 await handleConfigCommand(msg, args, chatId);
+                break;
+            case 'users':
+                await listGroupUsers(msg);
                 break;
             default:
                 await msg.reply('Comando desconhecido. Use !help para ver os comandos disponíveis.');
@@ -176,8 +182,22 @@ async function handleCommand(msg, chatId) {
 
 async function handleTextMessage(msg) {
     try {
-        const chatId = msg.from;
+        const chat = await msg.getChat();
+        const chatId = chat.id._serialized;
         const sender = msg.author || msg.from;
+
+        // Obter ou criar informações do usuário
+        const user = await getOrCreateUser(sender, chat);
+
+        await updateMessageHistory(chatId, user.name, msg.body);
+
+        const history = await getMessageHistory(chatId);
+
+        const userPromptText = `Histórico de chat: (formato: nome do usuário e em seguida mensagem; responda à última mensagem)\n\n${history.join('\n')}`;
+
+        logger.info(`Gerando resposta para: ${userPromptText}`);
+        const response = await generateResponseWithText(userPromptText, chatId);
+        logger.info(`Resposta gerada: ${response}`);
 
         await updateMessageHistory(chatId, sender, msg.body);
 
@@ -206,6 +226,41 @@ async function handleTextMessage(msg) {
         logger.error(`Erro ao processar mensagem de texto: ${error.message}`, { error });
         await msg.reply('Desculpe, ocorreu um erro ao processar sua mensagem. Por favor, tente novamente.');
     }
+}
+
+async function getOrCreateUser(sender, chat) {
+    return new Promise((resolve, reject) => {
+        usersDb.findOne({ id: sender }, async (err, user) => {
+            if (err) {
+                reject(err);
+            } else if (user) {
+                resolve(user);
+            } else {
+                try {
+                    let contact;
+                    if (chat.isGroup) {
+                        const participants = await chat.participants;
+                        contact = participants.find(p => p.id._serialized === sender);
+                    } else {
+                        contact = await chat.getContact();
+                    }
+                    
+                    const newUser = {
+                        id: sender,
+                        name: contact.pushname || contact.name || `User${sender.substring(0, 6)}`,
+                        joinedAt: new Date()
+                    };
+                    
+                    usersDb.insert(newUser, (err, doc) => {
+                        if (err) reject(err);
+                        else resolve(doc);
+                    });
+                } catch (error) {
+                    reject(error);
+                }
+            }
+        });
+    });
 }
 
 async function handleAudioMessage(msg, audioData, chatId) {
@@ -349,6 +404,7 @@ async function generateResponseWithText(userPrompt, chatId) {
     }
 }
 
+// Modifique a função getMessageHistory para retornar o nome do usuário
 function getMessageHistory(chatId) {
     return new Promise((resolve, reject) => {
         messagesDb.find({ chatId: chatId, type: { $in: ['user', 'bot'] } })
@@ -361,6 +417,22 @@ function getMessageHistory(chatId) {
     });
 }
 
+// Adicione uma nova função para listar usuários em um grupo
+async function listGroupUsers(msg) {
+    const chat = await msg.getChat();
+    if (chat.isGroup) {
+        const participants = await chat.participants;
+        const userList = await Promise.all(participants.map(async (p) => {
+            const user = await getOrCreateUser(p.id._serialized, chat);
+            return `${user.name} (${p.id.user})`;
+        }));
+        await msg.reply(`Usuários no grupo:\n${userList.join('\n')}`);
+    } else {
+        await msg.reply('Este comando só funciona em grupos.');
+    }
+}
+
+// Modifique a função updateMessageHistory para usar o nome do usuário
 function updateMessageHistory(chatId, sender, message, isBot = false) {
     return new Promise((resolve, reject) => {
         messagesDb.insert({
