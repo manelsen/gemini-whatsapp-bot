@@ -404,6 +404,19 @@ function updateMessageHistory(chatId, sender, message, isBot = false) {
     });
 }
 
+function postProcessResponse(response) {
+    // Remover menções explícitas a sistemas de mensagens ou aplicativos
+    response = response.replace(/WhatsApp|aplicativos de mensagem|chat online/gi, 'nossa conversa');
+    
+    // Verificar se a resposta parece apropriada
+    if (response.includes("não posso interagir diretamente") || 
+        response.includes("não tenho acesso")) {
+      return "Desculpe, não entendi completamente. Pode reformular sua pergunta?";
+    }
+    
+    return response;
+  }
+
 function resetHistory(chatId) {
     return new Promise((resolve, reject) => {
         messagesDb.remove({ chatId: chatId, type: { $in: ['user', 'bot'] } }, { multi: true }, (err) => {
