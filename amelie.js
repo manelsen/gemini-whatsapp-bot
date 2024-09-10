@@ -280,10 +280,34 @@ async function handleImageMessage(msg, imageData, chatId) {
             }
         };
 
-        const result = await model.generateContent([
-            imagePart,
-            { text: userPrompt }
-        ]);
+        // Obtém a configuração do usuário, incluindo as system instructions
+        const userConfig = await getConfig(chatId);
+
+        // Cria uma instância do modelo com as system instructions
+        const modelWithInstructions = genAI.getGenerativeModel({
+            model: "gemini-1.5-pro-vision",
+            generationConfig: {
+                temperature: userConfig.temperature,
+                topK: userConfig.topK,
+                topP: userConfig.topP,
+                maxOutputTokens: userConfig.maxOutputTokens,
+            },
+            safetySettings: [
+                { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+                { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+                { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+                { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+            ]
+        });
+
+        // Prepara o conteúdo para geração, incluindo as system instructions se existirem
+        const contentParts = [imagePart];
+        if (userConfig.systemInstructions) {
+            contentParts.push({ text: userConfig.systemInstructions });
+        }
+        contentParts.push({ text: userPrompt });
+
+        const result = await modelWithInstructions.generateContent(contentParts);
 
         const response = await result.response.text();
         await sendLongMessage(msg, response);
