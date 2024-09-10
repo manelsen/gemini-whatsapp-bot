@@ -595,8 +595,13 @@ async function sendLongMessage(msg, text) {
 
         logger.debug('Enviando mensagem:', { text: trimmedText });
         await msg.reply(trimmedText);
+        logger.info('Mensagem enviada com sucesso');
     } catch (error) {
-        logger.error(`Erro ao enviar mensagem: ${error.message}`, { error });
+        logger.error('Erro ao enviar mensagem:', { 
+            error: error.message,
+            stack: error.stack,
+            text: text
+        });
         await msg.reply('Desculpe, ocorreu um erro ao enviar a resposta. Por favor, tente novamente.');
     }
 }
