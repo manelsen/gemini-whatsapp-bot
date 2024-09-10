@@ -294,11 +294,11 @@ async function handleImageMessage(msg, imageData, chatId) {
 async function generateResponseWithText(userPrompt, chatId) {
     try {
         const userConfig = await getConfig(chatId);
-        console.log(userConfig)
         const model = genAI.getGenerativeModel({
             model: "gemini-1.5-flash",
             systemInstruction: userConfig.systemInstructions,
         });
+        console.log(userConfig.systemInstructions)
         const result = await model.generateContent(userPrompt);
         let responseText = result.response.text();
 
