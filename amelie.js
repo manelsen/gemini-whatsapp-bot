@@ -266,6 +266,13 @@ async function handleAudioMessage(msg, audioData, chatId) {
 
 async function handleImageMessage(msg, imageData, chatId) {
     try {
+        let userPrompt = "Descreva esta imagem em detalhes.";
+        
+        // Verifica se há uma mensagem de texto junto com a imagem
+        if (msg.body && msg.body.trim() !== '') {
+            userPrompt = msg.body.trim();
+        }
+
         const imagePart = {
             inlineData: {
                 data: imageData.data.toString('base64'),
@@ -275,14 +282,14 @@ async function handleImageMessage(msg, imageData, chatId) {
 
         const result = await model.generateContent([
             imagePart,
-            { text: "Descreva esta imagem em detalhes." }
+            { text: userPrompt }
         ]);
 
         const response = await result.response.text();
         await sendLongMessage(msg, response);
 
         // Atualizar o histórico de mensagens
-        await updateMessageHistory(chatId, msg.author || msg.from, '[Imagem]', false);
+        await updateMessageHistory(chatId, msg.author || msg.from, `[Imagem] ${userPrompt}`, false);
         await updateMessageHistory(chatId, bot_name, response, true);
 
     } catch (error) {
