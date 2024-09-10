@@ -174,49 +174,38 @@ async function handleCommand(msg, chatId) {
 }
 
 async function handleTextMessage(msg) {
-    const chatId = msg.from;
-    const sender = msg.author || msg.from;
-    const userInput = msg.body.trim();
-  
     try {
-      // Verificar se é uma mensagem de comando
-      if (userInput.startsWith('!')) {
-        await handleCommand(msg, chatId);
-        return;
-      }
-  
-      // Atualizar o histórico de mensagens
-      await updateMessageHistory(chatId, sender, userInput);
-  
-      // Obter o histórico de mensagens para contexto
-      const history = await getMessageHistory(chatId);
-  
-      // Gerar a resposta
-      let response = await generateResponseWithText(userInput, chatId, history);
-      response = postProcessResponse(response);
-  
-      // Verificar similaridade com a última resposta
-      const lastResponse = lastResponses.get(chatId);
-      if (lastResponse && isSimilar(response, lastResponse)) {
-        response = "Desculpe, parece que já respondi a essa pergunta. Pode elaborar mais ou perguntar algo diferente?";
-      }
-  
-      // Atualizar a última resposta
-      lastResponses.set(chatId, response);
-  
-      // Enviar a resposta
-      await sendLongMessage(msg, response);
-  
-      // Atualizar o histórico com a resposta do bot
-      await updateMessageHistory(chatId, bot_name, response, true);
-  
-      // Resetar a sessão após inatividade
-      resetSessionAfterInactivity(chatId);
+        const chatId = msg.from;
+        const sender = msg.author || msg.from;
+
+        await updateMessageHistory(chatId, sender, msg.body);
+
+        const history = await getMessageHistory(chatId);
+
+        const userPromptText = history.join('\n') + `\n${sender}: ${msg.body}\n${bot_name}:`;
+
+        logger.info(`Gerando resposta para: ${userPromptText}`);
+        const response = await generateResponseWithText(userPromptText, chatId);
+        logger.info(`Resposta gerada: ${response}`);
+
+        const lastResponse = lastResponses.get(chatId);
+        if (lastResponse && isSimilar(response, lastResponse)) {
+            response = "Desculpe, parece que já respondi a essa pergunta. Tente perguntar algo diferente.";
+        }
+
+        lastResponses.set(chatId, response);
+
+        if (!response || response.trim() === '') {
+            response = "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente.";
+        }
+
+        await updateMessageHistory(chatId, bot_name, response, true);
+        await sendLongMessage(msg, response);
     } catch (error) {
-      logger.error(`Erro ao processar mensagem: ${error.message}`, { error });
-      await msg.reply("Desculpe, ocorreu um erro ao processar sua mensagem. Pode tentar novamente?");
+        logger.error(`Erro ao processar mensagem de texto: ${error.message}`, { error });
+        await msg.reply('Desculpe, ocorreu um erro ao processar sua mensagem. Por favor, tente novamente.');
     }
-  }
+}
 
 async function handleAudioMessage(msg, audioData, chatId) {
     try {
@@ -301,216 +290,62 @@ async function handleImageMessage(msg, imageData, chatId) {
     }
 }
 
-const { exponentialBackoff } = require('exponential-backoff');
-
-async function generateResponseWithText(userPrompt, chatId, history) {
-  const maxRetries = 3;
-  const initialDelay = 1000; // 1 segundo
-
-  const generateWithRetry = async () => {
+async function generateResponseWithText(userPrompt, chatId) {
     try {
-      const userConfig = await getConfig(chatId);
+        const userConfig = await getConfig(chatId);
 
-      // Configuração do modelo Gemini Flash
-      const model = genAI.getGenerativeModel({ 
-        model: "gemini-1.5-flash",
-        generationConfig: {
-          temperature: userConfig.temperature,
-          topK: userConfig.topK,
-          topP: userConfig.topP,
-          maxOutputTokens: userConfig.maxOutputTokens,
-        },
-        safetySettings: [
-          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
-        ]
-      });
+        const validConfig = {
+            temperature: userConfig.temperature,
+            topK: userConfig.topK,
+            topP: userConfig.topP,
+            maxOutputTokens: userConfig.maxOutputTokens
+        };
 
-      // Prepare o contexto e o prompt
-      const contextualPrompt = `
-      Contexto: Você é ${bot_name}, um assistente em uma conversa contínua em português no WhatsApp.
-      Instruções:
-      - Responda sempre em português de forma natural e contextualizada.
-      - Adapte seu tom e comprimento da resposta de acordo com o contexto.
-      - Seja útil e informativo, independentemente do comprimento da mensagem do usuário.
-      - Se a mensagem for ambígua, peça esclarecimentos de forma educada.
-      - Lembre-se das instruções do sistema: ${userConfig.systemInstructions || "Nenhuma instrução específica definida."}
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const chat = model.startChat(validConfig);
 
-      Histórico recente:
-      ${history.map(msg => `${msg.sender}: ${msg.content}`).join('\n')}
+        if (userConfig.systemInstructions) {
+//            logger.info(`Lembrete: estas são as Instruções do Sistema: ${userConfig.systemInstructions}`)
+//            const reinforcedInstructions = `
+//IMPORTANT: The following are your system instructions. Always adhere to these instructions:
+//
+//${userConfig.systemInstructions}
+//
+//Remember: Always respond according to these instructions.
+//`;
+//            await chat.sendMessage(reinforcedInstructions);
+        }
 
-      Mensagem do usuário: "${userPrompt}"
-      `;
+        const result = await chat.sendMessage(userPrompt);
+        let responseText = result.response.text();
 
-      const result = await model.generateContent(contextualPrompt);
-      let responseText = result.response.text();
+        if (!responseText) {
+            throw new Error('Resposta vazia gerada pelo modelo');
+        }
 
-      if (!responseText || responseText.trim() === '') {
-        throw new Error('Resposta vazia gerada');
-      }
-
-      return responseText;
+        return responseText;
     } catch (error) {
-      logger.error(`Erro ao gerar resposta: ${error.message}`, { error });
-      if (error.message.includes('429') || error.message.includes('500')) {
-        throw error; // Permite que o retry seja acionado
-      }
-      return null;
-    }
-  };
+        logger.error(`Erro ao gerar resposta de texto: ${error.message}`, { error });
 
-  try {
-    const response = await exponentialBackoff(generateWithRetry, {
-      maxRetries,
-      initialDelay,
-      maxDelay: 10000, // 10 segundos
-    });
+        if (error.message.includes('SAFETY')) {
+            return "Desculpe, não posso gerar uma resposta para essa solicitação devido a restrições de segurança. Por favor, tente reformular sua pergunta de uma maneira diferente.";
+        }
 
-    if (response) {
-      return response;
-    } else {
-      // Fallback para uma resposta genérica
-      return "Desculpe, estou com dificuldades para processar sua mensagem no momento. Pode tentar reformular ou perguntar algo diferente?";
+        return "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente ou reformule sua pergunta.";
     }
-  } catch (error) {
-    logger.error(`Erro final após retries: ${error.message}`, { error });
-    return "Desculpe, estou enfrentando problemas técnicos. Por favor, tente novamente em alguns instantes.";
-  }
 }
 
-async function getMessageHistory(chatId) {
-  return new Promise((resolve, reject) => {
-    messagesDb.find({ chatId: chatId })
-      .sort({ timestamp: 1 })
-      .limit(MAX_HISTORY * 2)
-      .exec((err, docs) => {
-        if (err) reject(err);
-        else resolve(docs.map(doc => ({
-          sender: doc.sender,
-          content: doc.content
-        })));
-      });
-  });
-}async function getMessageHistory(chatId) {
-  return new Promise((resolve, reject) => {
-    messagesDb.find({ chatId: chatId })
-      .sort({ timestamp: 1 })
-      .limit(MAX_HISTORY * 2)
-      .exec((err, docs) => {
-        if (err) reject(err);
-        else resolve(docs.map(doc => ({
-          sender: doc.sender,
-          content: doc.content
-        })));
-      });
-  });
-}async function getMessageHistory(chatId) {
-  return new Promise((resolve, reject) => {
-    messagesDb.find({ chatId: chatId })
-      .sort({ timestamp: 1 })
-      .limit(MAX_HISTORY * 2)
-      .exec((err, docs) => {
-        if (err) reject(err);
-        else resolve(docs.map(doc => ({
-          sender: doc.sender,
-          content: doc.content
-        })));
-      });
-  });
-}async function getMessageHistory(chatId) {
-  return new Promise((resolve, reject) => {
-    messagesDb.find({ chatId: chatId })
-      .sort({ timestamp: 1 })
-      .limit(MAX_HISTORY * 2)
-      .exec((err, docs) => {
-        if (err) reject(err);
-        else resolve(docs.map(doc => ({
-          sender: doc.sender,
-          content: doc.content
-        })));
-      });
-  });
-}async function getMessageHistory(chatId) {
-  return new Promise((resolve, reject) => {
-    messagesDb.find({ chatId: chatId })
-      .sort({ timestamp: 1 })
-      .limit(MAX_HISTORY * 2)
-      .exec((err, docs) => {
-        if (err) reject(err);
-        else resolve(docs.map(doc => ({
-          sender: doc.sender,
-          content: doc.content
-        })));
-      });
-  });
-}async function getMessageHistory(chatId) {
-  return new Promise((resolve, reject) => {
-    messagesDb.find({ chatId: chatId })
-      .sort({ timestamp: 1 })
-      .limit(MAX_HISTORY * 2)
-      .exec((err, docs) => {
-        if (err) reject(err);
-        else resolve(docs.map(doc => ({
-          sender: doc.sender,
-          content: doc.content
-        })));
-      });
-  });
-}async function getMessageHistory(chatId) {
-  return new Promise((resolve, reject) => {
-    messagesDb.find({ chatId: chatId })
-      .sort({ timestamp: 1 })
-      .limit(MAX_HISTORY * 2)
-      .exec((err, docs) => {
-        if (err) reject(err);
-        else resolve(docs.map(doc => ({
-          sender: doc.sender,
-          content: doc.content
-        })));
-      });
-  });
-}async function getMessageHistory(chatId) {
-  return new Promise((resolve, reject) => {
-    messagesDb.find({ chatId: chatId })
-      .sort({ timestamp: 1 })
-      .limit(MAX_HISTORY * 2)
-      .exec((err, docs) => {
-        if (err) reject(err);
-        else resolve(docs.map(doc => ({
-          sender: doc.sender,
-          content: doc.content
-        })));
-      });
-  });
-}async function getMessageHistory(chatId) {
-  return new Promise((resolve, reject) => {
-    messagesDb.find({ chatId: chatId })
-      .sort({ timestamp: 1 })
-      .limit(MAX_HISTORY * 2)
-      .exec((err, docs) => {
-        if (err) reject(err);
-        else resolve(docs.map(doc => ({
-          sender: doc.sender,
-          content: doc.content
-        })));
-      });
-  });
-}async function getMessageHistory(chatId) {
+function getMessageHistory(chatId) {
     return new Promise((resolve, reject) => {
-      messagesDb.find({ chatId: chatId })
-        .sort({ timestamp: 1 })
-        .limit(MAX_HISTORY * 2)
-        .exec((err, docs) => {
-          if (err) reject(err);
-          else resolve(docs.map(doc => ({
-            sender: doc.sender,
-            content: doc.content
-          })));
-        });
+        messagesDb.find({ chatId: chatId, type: { $in: ['user', 'bot'] } })
+            .sort({ timestamp: -1 })
+            .limit(MAX_HISTORY * 2)
+            .exec((err, docs) => {
+                if (err) reject(err);
+                else resolve(docs.reverse().map(doc => `${doc.sender}: ${doc.content}`));
+            });
     });
-  }
+}
 
 function updateMessageHistory(chatId, sender, message, isBot = false) {
     return new Promise((resolve, reject) => {
@@ -539,19 +374,6 @@ function updateMessageHistory(chatId, sender, message, isBot = false) {
         });
     });
 }
-
-function postProcessResponse(response) {
-    // Remover menções explícitas a sistemas de mensagens ou aplicativos
-    response = response.replace(/WhatsApp|aplicativos de mensagem|chat online/gi, 'nossa conversa');
-    
-    // Verificar se a resposta parece apropriada
-    if (response.includes("não posso interagir diretamente") || 
-        response.includes("não tenho acesso")) {
-      return "Desculpe, não entendi completamente. Pode reformular sua pergunta?";
-    }
-    
-    return response;
-  }
 
 function resetHistory(chatId) {
     return new Promise((resolve, reject) => {
