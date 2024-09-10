@@ -75,7 +75,8 @@ client.on('qr', qr => {
 });
 
 client.on('ready', () => {
-    logger.info('Cliente WhatsApp pronto');
+    logger.info('Cliente WhatsApp pronto e conectado');
+    // Adicione mais informações sobre o estado do cliente aqui
 });
 
 client.on('message_create', async (msg) => {
@@ -85,7 +86,7 @@ client.on('message_create', async (msg) => {
         const chat = await msg.getChat();
         await chat.sendSeen();
 
-        logger.info(`Mensagem recebida: ${msg.author} -> ${msg.body}`);
+        logger.info(`Mensagem recebida: User (identificado no Whatsapp como ${msg.author}) -> ${msg.body}`);
 
         const chatId = chat.id._serialized;
 
