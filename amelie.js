@@ -308,6 +308,12 @@ async function generateResponseWithText(userPrompt, chatId, history) {
       // Configuração do modelo
       const model = genAI.getGenerativeModel({ 
         model: "gemini-1.5-pro",
+        generationConfig: {
+          temperature: userConfig.temperature,
+          topK: userConfig.topK,
+          topP: userConfig.topP,
+          maxOutputTokens: userConfig.maxOutputTokens,
+        },
         safetySettings: [
           { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
           { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
@@ -316,21 +322,21 @@ async function generateResponseWithText(userPrompt, chatId, history) {
         ]
       });
   
+      // Preparar o histórico no formato correto
+      const formattedHistory = history.map((msg, index) => ({
+        role: index % 2 === 0 ? 'user' : 'model',
+        parts: msg.content
+      }));
+  
+      // Iniciar o chat com o histórico formatado
       const chat = model.startChat({
-        history: history,
-        generationConfig: {
-          temperature: userConfig.temperature,
-          topK: userConfig.topK,
-          topP: userConfig.topP,
-          maxOutputTokens: userConfig.maxOutputTokens,
-        },
+        history: formattedHistory,
       });
   
       const contextualPrompt = `
       Contexto: Você é ${bot_name}, um assistente em uma conversa contínua em português no WhatsApp.
       Instruções:
       - Responda sempre em português de forma natural e contextualizada.
-      - Considere o histórico da conversa ao formular sua resposta.
       - Adapte seu tom e comprimento da resposta de acordo com o contexto.
       - Seja útil e informativo, independentemente do comprimento da mensagem do usuário.
       - Se a mensagem for ambígua, peça esclarecimentos de forma educada.
@@ -347,8 +353,8 @@ async function generateResponseWithText(userPrompt, chatId, history) {
       }
   
       // Verificar limites de segurança
-      if (result.response.promptFeedback && result.response.promptFeedback.safetyRatings) {
-        const blocked = result.response.promptFeedback.safetyRatings.some(rating => rating.probability === 'HIGH');
+      if (result.promptFeedback && result.promptFeedback.safetyRatings) {
+        const blocked = result.promptFeedback.safetyRatings.some(rating => rating.probability === 'HIGH');
         if (blocked) {
           return "Desculpe, não posso responder a essa solicitação devido a restrições de segurança.";
         }
@@ -364,17 +370,20 @@ async function generateResponseWithText(userPrompt, chatId, history) {
     }
   }
 
-function getMessageHistory(chatId) {
+  async function getMessageHistory(chatId) {
     return new Promise((resolve, reject) => {
-        messagesDb.find({ chatId: chatId, type: { $in: ['user', 'bot'] } })
-            .sort({ timestamp: -1 })
-            .limit(MAX_HISTORY * 2)
-            .exec((err, docs) => {
-                if (err) reject(err);
-                else resolve(docs.reverse().map(doc => `${doc.sender}: ${doc.content}`));
-            });
+      messagesDb.find({ chatId: chatId })
+        .sort({ timestamp: 1 })
+        .limit(MAX_HISTORY * 2)
+        .exec((err, docs) => {
+          if (err) reject(err);
+          else resolve(docs.map(doc => ({
+            sender: doc.sender,
+            content: doc.content
+          })));
+        });
     });
-}
+  }
 
 function updateMessageHistory(chatId, sender, message, isBot = false) {
     return new Promise((resolve, reject) => {
