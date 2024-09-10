@@ -285,7 +285,7 @@ async function handleImageMessage(msg, imageData, chatId) {
 
         // Cria uma instância do modelo com as system instructions
         const modelWithInstructions = genAI.getGenerativeModel({
-            model: "gemini-1.5-pro-vision",
+            model: "gemini-1.5-flash",
             generationConfig: {
                 temperature: userConfig.temperature,
                 topK: userConfig.topK,
