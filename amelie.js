@@ -299,7 +299,7 @@ async function generateResponseWithText(userPrompt, chatId) {
             model: "gemini-1.5-flash",
             systemInstruction: userConfig.systemInstructions,
         });
-        const result = await model.generateContent(prompt);
+        const result = await model.generateContent(userPrompt);
         let responseText = result.response.text();
 
         if (!responseText) {
