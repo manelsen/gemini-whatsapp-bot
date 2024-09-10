@@ -325,7 +325,7 @@ async function generateResponseWithText(userPrompt, chatId, history) {
       // Preparar o histórico no formato correto
       const formattedHistory = history.map((msg, index) => ({
         role: index % 2 === 0 ? 'user' : 'model',
-        parts: msg.content
+        parts: [{ text: msg.content }]
       }));
   
       // Iniciar o chat com o histórico formatado
@@ -345,7 +345,7 @@ async function generateResponseWithText(userPrompt, chatId, history) {
       Mensagem do usuário: "${userPrompt}"
       `;
   
-      const result = await chat.sendMessage(contextualPrompt);
+      const result = await chat.sendMessage([{ text: contextualPrompt }]);
       let responseText = result.response.text();
   
       if (!responseText || responseText.trim() === '') {
