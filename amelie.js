@@ -199,16 +199,6 @@ async function handleTextMessage(msg) {
         const response = await generateResponseWithText(userPromptText, chatId);
         logger.info(`Resposta gerada: ${response}`);
 
-        await updateMessageHistory(chatId, sender, msg.body);
-
-        const history = await getMessageHistory(chatId);
-
-        const userPromptText = `Histórico de chat: (formato: número de whatsapp e em seguida mensagem; responda à última mensagem)\n\n${history.join('\n')}`;
-
-        logger.info(`Gerando resposta para: ${userPromptText}`);
-        const response = await generateResponseWithText(userPromptText, chatId);
-        logger.info(`Resposta gerada: ${response}`);
-
         const lastResponse = lastResponses.get(chatId);
         if (lastResponse && isSimilar(response, lastResponse)) {
             response = "Desculpe, parece que já respondi a essa pergunta. Tente perguntar algo diferente.";
