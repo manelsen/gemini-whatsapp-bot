@@ -86,7 +86,7 @@ client.on('message_create', async (msg) => {
         const chat = await msg.getChat();
         await chat.sendSeen();
 
-        logger.info(`Mensagem recebida: User (identificado no Whatsapp como ${msg.from}) -> ${msg.body}`);
+        logger.info(`Mensagem recebida: User (identificado no Whatsapp como ${msg.author} ou ${msg.from}) -> ${msg.body}`);
 
         const chatId = chat.id._serialized;
 
