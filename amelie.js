@@ -295,31 +295,11 @@ async function generateResponseWithText(userPrompt, chatId) {
     try {
         const userConfig = await getConfig(chatId);
         console.log(userConfig)
-
-        const validConfig = {
-            temperature: userConfig.temperature,
-            topK: userConfig.topK,
-            topP: userConfig.topP,
-            maxOutputTokens: userConfig.maxOutputTokens
-
-        };
-
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const chat = model.startChat(userConfig);
-
-        if (userConfig.systemInstructions) {
-//            logger.info(`Lembrete: estas são as Instruções do Sistema: ${userConfig.systemInstructions}`)
-//            const reinforcedInstructions = `
-//IMPORTANT: The following are your system instructions. Always adhere to these instructions:
-//
-//${userConfig.systemInstructions}
-//
-//Remember: Always respond according to these instructions.
-//`;
-//            await chat.sendMessage(reinforcedInstructions);
-        }
-
-        const result = await chat.sendMessage(userPrompt);
+        const model = genAI.getGenerativeModel({
+            model: "gemini-1.5-flash",
+            systemInstruction: userConfig.systemInstructions,
+        });
+        const result = await model.generateContent(prompt);
         let responseText = result.response.text();
 
         if (!responseText) {
