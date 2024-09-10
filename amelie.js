@@ -183,7 +183,7 @@ async function handleTextMessage(msg) {
 
         const history = await getMessageHistory(chatId);
 
-        const userPromptText = history.join('\n') + `\n${sender}: ${msg.body}\n${bot_name}:`;
+        const userPromptText = history.join('\n') + `\nUser (número de whatsapp: ${sender}): ${msg.body}\nModel (chamado ${bot_name}):`;
 
         logger.info(`Gerando resposta para: ${userPromptText}`);
         const response = await generateResponseWithText(userPromptText, chatId);
