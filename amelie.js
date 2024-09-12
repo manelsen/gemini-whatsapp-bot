@@ -90,25 +90,33 @@ client.on('message_create', async (msg) => {
         logger.info(`Mensagem recebida: ${msg.author} / ${msg.from}) -> ${msg.body}`);
 
         const chatId = chat.id._serialized;
+        const sender = msg.author || msg.from;
+        const user = await getOrCreateUser(sender, chat);
 
-        if (chat.isGroup) {
-            const shouldRespond = await shouldRespondInGroup(msg, chat);
-            if (!shouldRespond && !msg.hasMedia) return;
-        }
+        // Adiciona a mensagem ao histórico, independentemente de ser processada ou não
+        await updateMessageHistory(chatId, user.name, msg.body);
 
         if (msg.body.startsWith('!')) {
             logger.info(`Comando detectado: ${msg.body}`);
             await handleCommand(msg, chatId);
-        } else if (msg.hasMedia) {
-            const attachmentData = await msg.downloadMedia();
-            if (attachmentData.mimetype === 'audio/ogg; codecs=opus' || 
-                attachmentData.mimetype === 'audio/mp3' || 
-                attachmentData.mimetype.startsWith('audio/')) {
+        } else if (chat.isGroup) {
+            const shouldRespond = await shouldRespondInGroup(msg, chat);
+            if (!shouldRespond) {
+                logger.info(`Mensagem ignorada em grupo: ${msg.body}`);
+                return;
+            }
+        }
+
+        if (msg.hasMedia) {
+            const config = await getConfig(chatId);
+            if (msg.type === 'audio' && !config.disableAudio) {
+                const attachmentData = await msg.downloadMedia();
                 await handleAudioMessage(msg, attachmentData, chatId);
-            } else if (attachmentData.mimetype.startsWith('image/')) {
+            } else if (msg.type === 'image' && !config.disableImage) {
+                const attachmentData = await msg.downloadMedia();
                 await handleImageMessage(msg, attachmentData, chatId);
             } else {
-                await msg.reply('Desculpe, no momento só posso processar áudios e imagens.');
+                logger.info('O processamento deste tipo de mídia está desativado para este chat.');
             }
         } else {
             await handleTextMessage(msg);
@@ -191,11 +199,9 @@ async function handleTextMessage(msg) {
         // Obter a configuração específica do chat, incluindo o nome do bot
         const chatConfig = await getConfig(chatId);
 
-        await updateMessageHistory(chatId, user.name, msg.body);
-
         const history = await getMessageHistory(chatId);
 
-        const userPromptText = `Histórico de chat: (formato: nome do usuário e em seguida mensagem; responda à última mensagem)\n\n${history.join('\n')}`;
+        const userPromptText = `Histórico de chat whatsapp (responda à última mensagem):\n\n${history.join('\n')}`;
 
         logger.info(`Gerando resposta para: ${userPromptText}`);
         const response = await generateResponseWithText(userPromptText, chatId);
@@ -220,6 +226,7 @@ async function handleTextMessage(msg) {
         await msg.reply('Desculpe, ocorreu um erro ao processar sua mensagem. Por favor, tente novamente.');
     }
 }
+
 
 async function getOrCreateUser(sender, chat) {
     return new Promise((resolve, reject) => {
@@ -438,7 +445,7 @@ function updateMessageHistory(chatId, sender, message, isBot = false) {
         }, (err) => {
             if (err) reject(err);
             else {
-                messagesDb.find({ chatId: chatId, type: { $in: ['user', 'bot'] } })
+                messagesDb.find({ chatId: chatId })
                     .sort({ timestamp: -1 })
                     .skip(MAX_HISTORY * 2)
                     .exec((err, docsToRemove) => {

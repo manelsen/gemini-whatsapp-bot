@@ -3,13 +3,16 @@
 Este projeto implementa um bot de WhatsApp alimentado pela IA Gemini do Google, capaz de processar entradas de texto, áudio e imagem. Ele oferece uma série de recursos, incluindo instruções de sistema personalizáveis, gerenciamento de configurações e rastreamento de usuários.
 
 ## Índice
-1. [Funcionalidades](#funcionalidades)
-2. [Pré-requisitos](#pré-requisitos)
-3. [Instalação](#instalação)
-4. [Configuração](#configuração)
-5. [Uso](#uso)
-6. [Informações sobre a LLM](#informações-sobre-a-llm)
-7. [Construindo Prompts Eficazes](#construindo-prompts-eficazes)
+
+- [Bot de WhatsApp com IA Gemini do Google](#bot-de-whatsapp-com-ia-gemini-do-google)
+  - [Índice](#índice)
+  - [Funcionalidades](#funcionalidades)
+  - [Pré-requisitos](#pré-requisitos)
+  - [Instalação](#instalação)
+  - [Configuração](#configuração)
+  - [Uso](#uso)
+  - [Informações sobre a LLM](#informações-sobre-a-llm)
+  - [Construindo Prompts Eficazes](#construindo-prompts-eficazes)
 
 ## Funcionalidades
 
@@ -31,27 +34,31 @@ Este projeto implementa um bot de WhatsApp alimentado pela IA Gemini do Google, 
 ## Instalação
 
 1. Clone o repositório:
-   ```
+
+   ```bash
    git clone https://github.com/manelsen/gemini-whatsapp-bot.git
    cd gemini-whatsapp-bot
    ```
 
 2. Instale as dependências:
-   ```
+
+   ```bash
    npm install
    ```
 
 3. Configure as variáveis de ambiente:
    Crie um arquivo `.env` no diretório raiz e adicione o seguinte:
-   ```
+
+   ```bash
    API_KEY=sua_chave_api_do_google_generative_ai
    BOT_NAME=NomeDoSeuBot
    MAX_HISTORY=500
    ```
 
 4. Execute o bot:
-   ```
-   node index.js
+
+   ```bash
+   node amelie.js
    ```
 
 5. Escaneie o código QR com o WhatsApp para fazer login.
@@ -64,6 +71,7 @@ Você pode configurar o bot usando os seguintes comandos:
 - `!config get [param]`: Obtém a configuração atual
 
 Parâmetros disponíveis:
+
 - `temperature`
 - `topK`
 - `topP`
@@ -102,7 +110,8 @@ Ao criar instruções de sistema (prompts), considere as seguintes dicas:
 5. Itere e refine: Teste seus prompts e ajuste com base no desempenho do bot.
 
 Exemplo de prompt:
-```
+
+```text
 Seu nome é Amélie. Você é uma assistente prestativa especializada em tecnologia e programação. Quando perguntada sobre código, sempre forneça explicações e exemplos. Se não tiver certeza sobre algo, admita e ofereça-se para pesquisar mais. Mantenha um tom amigável e profissional em todas as interações.
 ```
 

@@ -5,3 +5,6 @@ autonomousMagnificus2.js
 audio.ogg 
 amelieShortClaude.js 
 amelieShortGemini.js 
+node_modules
+package-lock.json
+README.pdf
