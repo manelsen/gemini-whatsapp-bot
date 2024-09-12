@@ -270,6 +270,7 @@ async function handleAudioMessage(msg, audioData, chatId) {
         });
 
                 logger.info(`Arquivo de áudio enviado com sucesso: ${uploadedFile.file.uri}`);
+                logger.info(`Detalhes: ${JSON.stringify(uploadedFile)}`);
 
         // Gerar conteúdo usando o modelo (com tratamento de erros)
         try {
