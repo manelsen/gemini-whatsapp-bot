@@ -269,10 +269,13 @@ async function handleAudioMessage(msg, audioData, chatId) {
             mimeType: audioData.mimetype || 'audio/mp3',
         });
 
-        logger.info(`Arquivo de áudio enviado com sucesso: ${uploadedFile.file.uri}`);
+                logger.info(`Arquivo de áudio enviado com sucesso: ${uploadedFile.file.uri}`);
 
         // Gerar conteúdo usando o modelo (com tratamento de erros)
         try {
+            logger.info('Setando o modelo de forma simples');
+            const model = genAI.getGenerativeModel({model: "gemini-1.5-flash",});
+        
             const result = await model.generateContent([
                 {
                     fileData: {
