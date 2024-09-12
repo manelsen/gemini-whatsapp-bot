@@ -335,6 +335,10 @@ async function handleImageMessage(msg, imageData, chatId) {
             userPrompt = msg.body.trim();
         }
 
+        // Obtém o histórico de conversas
+        const chatHistory = await getMessageHistory(chatId);
+        const formattedHistory = chatHistory.map(message => `${message.sender}: ${message.content}`).join('\n');
+
         const imagePart = {
             inlineData: {
                 data: imageData.data.toString('base64'),
@@ -347,7 +351,7 @@ async function handleImageMessage(msg, imageData, chatId) {
 
         // Cria uma instância do modelo com as system instructions
         const modelWithInstructions = genAI.getGenerativeModel({
-            model: "gemini-1.5-flash",
+            model: "gemini-pro-vision",
             generationConfig: {
                 temperature: userConfig.temperature,
                 topK: userConfig.topK,
@@ -362,12 +366,17 @@ async function handleImageMessage(msg, imageData, chatId) {
             ]
         });
 
-        // Prepara o conteúdo para geração, incluindo as system instructions se existirem
-        const contentParts = [imagePart];
+        // Prepara o conteúdo para geração, incluindo o histórico, as system instructions e o prompt do usuário
+        const contentParts = [
+            { text: `Histórico da conversa:\n${formattedHistory}\n\nAgora, analise a imagem considerando o contexto acima.` },
+            imagePart
+        ];
+        
         if (userConfig.systemInstructions) {
             contentParts.push({ text: userConfig.systemInstructions });
         }
-        contentParts.push({ text: userPrompt });
+        
+        contentParts.push({ text: `Prompt do usuário: ${userPrompt}\n\nPor favor, responda ao prompt considerando a imagem e o contexto da conversa.` });
 
         const result = await modelWithInstructions.generateContent(contentParts);
 
@@ -376,7 +385,7 @@ async function handleImageMessage(msg, imageData, chatId) {
 
         // Atualizar o histórico de mensagens
         await updateMessageHistory(chatId, msg.author || msg.from, `[Imagem] ${userPrompt}`, false);
-        await updateMessageHistory(chatId, bot_name, response, true);
+        await updateMessageHistory(chatId, userConfig.botName, response, true);
 
     } catch (error) {
         logger.error(`Erro ao processar mensagem de imagem: ${error.message}`, { error });
@@ -411,14 +420,15 @@ async function generateResponseWithText(userPrompt, chatId) {
     }
 }
 
-function getMessageHistory(chatId) {
+// Função auxiliar para obter o histórico de mensagens
+async function getMessageHistory(chatId, limit = 1000) {
     return new Promise((resolve, reject) => {
-        messagesDb.find({ chatId: chatId, type: { $in: ['user', 'bot'] } })
+        messagesDb.find({ chatId: chatId })
             .sort({ timestamp: -1 })
-            .limit(MAX_HISTORY * 2)
+            .limit(limit)
             .exec((err, docs) => {
                 if (err) reject(err);
-                else resolve(docs.reverse().map(doc => `${doc.sender}: ${doc.content}`));
+                else resolve(docs.reverse());
             });
     });
 }
