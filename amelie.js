@@ -99,7 +99,10 @@ client.on('message_create', async (msg) => {
         if (msg.body.startsWith('!')) {
             logger.info(`Comando detectado: ${msg.body}`);
             await handleCommand(msg, chatId);
-        } else if (chat.isGroup) {
+            return; // Adicionado para evitar processamento adicional após um comando
+        }
+
+        if (chat.isGroup) {
             const shouldRespond = await shouldRespondInGroup(msg, chat);
             if (!shouldRespond) {
                 logger.info(`Mensagem ignorada em grupo: ${msg.body}`);
@@ -152,7 +155,7 @@ async function handleCommand(msg, chatId) {
         switch (command.toLowerCase()) {
             case 'reset':
                 await resetHistory(chatId);
-                await msg.reply('🤖 Histórico resetado para este chat');
+                await msg.reply('Histórico resetado para este chat');
                 break;
             case 'help':
                 await msg.reply(
