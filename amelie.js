@@ -17,7 +17,7 @@ let bot_name = process.env.BOT_NAME || 'Amelie';
 
 // Configuração do logger
 const logger = winston.createLogger({
-    level: 'debug',
+    level: 'info',
     format: winston.format.combine(
         winston.format.timestamp(),
         winston.format.printf(({ timestamp, level, message, ...rest }) => {
