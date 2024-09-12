@@ -8,3 +8,12 @@ amelieShortGemini.js
 node_modules
 package-lock.json
 README.pdf
+.wwebjs_auth
+.wwebjs_cache
+node_modules
+.env
+users.db
+prompts.db
+messages.db
+config.db
+bot.log
