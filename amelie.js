@@ -87,7 +87,7 @@ client.on('message_create', async (msg) => {
         const chat = await msg.getChat();
         await chat.sendSeen();
 
-        logger.info(`Mensagem recebida: User (identificado no Whatsapp como ${msg.author} ou ${msg.from}) -> ${msg.body}`);
+        logger.info(`Mensagem recebida: ${msg.author} / ${msg.from}) -> ${msg.body}`);
 
         const chatId = chat.id._serialized;
 
@@ -136,7 +136,6 @@ async function shouldRespondInGroup(msg, chat) {
     return isBotMentioned || isReplyToBot || isBotNameMentioned;
 }
 
-// Modifique a função handleCommand para incluir o novo comando
 async function handleCommand(msg, chatId) {
     const [command, ...args] = msg.body.slice(1).split(' ');
     logger.info(`Comando: ${command}, Argumentos: ${args}`);
@@ -391,14 +390,13 @@ async function generateResponseWithText(userPrompt, chatId) {
         logger.error(`Erro ao gerar resposta de texto: ${error.message}`, { error });
 
         if (error.message.includes('SAFETY')) {
-            return "Desculpe, não posso gerar uma resposta para essa solicitação devido a restrições de segurança. Por favor, tente reformular sua pergunta de uma maneira diferente.";
+            return `Erro ao gerar resposta de texto por filtro de segurança: ${error.message}`, { error };
         }
 
         return "Desculpe, ocorreu um erro ao gerar a resposta. Por favor, tente novamente ou reformule sua pergunta.";
     }
 }
 
-// Modifique a função getMessageHistory para retornar o nome do usuário
 function getMessageHistory(chatId) {
     return new Promise((resolve, reject) => {
         messagesDb.find({ chatId: chatId, type: { $in: ['user', 'bot'] } })
@@ -411,7 +409,6 @@ function getMessageHistory(chatId) {
     });
 }
 
-// Adicione uma nova função para listar usuários em um grupo
 async function listGroupUsers(msg) {
     const chat = await msg.getChat();
     if (chat.isGroup) {
@@ -426,7 +423,6 @@ async function listGroupUsers(msg) {
     }
 }
 
-// Modifique a função updateMessageHistory para usar o nome do usuário
 function updateMessageHistory(chatId, sender, message, isBot = false) {
     return new Promise((resolve, reject) => {
         messagesDb.insert({
@@ -561,7 +557,6 @@ async function handleConfigCommand(msg, args, chatId) {
     }
 }
 
-// Modifique a função setSystemPrompt
 function setSystemPrompt(chatId, name, text) {
     return new Promise((resolve, reject) => {
         const formattedText = `Seu nome é ${name}. ${text}`;
@@ -608,12 +603,12 @@ async function setActiveSystemPrompt(chatId, promptName) {
 }
 
 async function clearChatOnInstructionChange(chatId) {
-    //try {
-    //    await messagesDb.remove({ chatId: chatId }, { multi: true });
-    //    logger.info(`Chat limpo para ${chatId} devido à mudança nas instruções do sistema`);
-    //} catch (error) {
-    //    logger.error(`Erro ao limpar chat para ${chatId}: ${error.message}`);
-    //}
+    try {
+        await messagesDb.remove({ chatId: chatId }, { multi: true });
+        logger.info(`Chat limpo para ${chatId} devido à mudança nas instruções do sistema`);
+    } catch (error) {
+        logger.error(`Erro ao limpar chat para ${chatId}: ${error.message}`);
+    }
 }
 
 async function clearActiveSystemPrompt(chatId) {
@@ -652,7 +647,6 @@ async function getConfig(chatId) {
                     const activePrompt = await getSystemPrompt(chatId, config.activePrompt);
                     if (activePrompt) {
                         config.systemInstructions = activePrompt.text;
-                        // Extraia o nome do bot das instruções do sistema
                         const match = config.systemInstructions.match(/^Seu nome é (\w+)\./);
                         if (match) {
                             config.botName = match[1];
@@ -664,7 +658,6 @@ async function getConfig(chatId) {
                     config.botName = process.env.BOT_NAME || 'Amelie';
                 }
 
-                // Garanta que systemInstructions seja uma string
                 if (config.systemInstructions && typeof config.systemInstructions !== 'string') {
                     config.systemInstructions = String(config.systemInstructions);
                 }
@@ -699,15 +692,14 @@ async function sendLongMessage(msg, text) {
 }
 
 function resetSessionAfterInactivity(chatId, inactivityPeriod = 3600000) { // 1 hora
-    setTimeout(() => {
-        logger.info(`Sessão resetada para o chat ${chatId} após inatividade`);
-        resetHistory(chatId);
-    }, inactivityPeriod);
+    //setTimeout(() => {
+    //    logger.info(`Sessão resetada para o chat ${chatId} após inatividade`);
+    //    resetHistory(chatId);
+    //}, inactivityPeriod);
 }
 
 function isSimilar(text1, text2) {
-    // Implemente sua lógica de comparação de similaridade aqui
-    // Você pode usar algoritmos como Levenshtein distance, cosine similarity, etc.
+    // TODO:  Levenshtein distance
     return false; // Placeholder
 }
 
